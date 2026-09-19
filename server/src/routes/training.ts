@@ -504,9 +504,31 @@ router.post('/init-model', authMiddleware, async (req: AuthenticatedRequest, res
       quantization = false,
     } = req.body;
 
+    // init_service_wrapper is registered in the engine's Gradio app as a *lambda*
+    // (ui/gradio/__init__.py: `fn=lambda *args: gen_h.init_service_wrapper(...)`), and
+    // Gradio does not assign API names to lambdas - so it is absent from the app's 147
+    // named endpoints and can never be called by name. Probing first also avoids the
+    // unhandled rejection @gradio/client leaks for an unknown name, which would
+    // otherwise terminate this server (the same failure mode that produced 500s across
+    // the whole UI).
+    if (!(await hasGradioEndpoint('/init_service_wrapper'))) {
+      res.status(501).json({
+        // Being explicit about *why* saves the user hunting for a workaround:
+        // the engine has already initialised.
+        error:
+          'Model initialisation is not available over the API: the engine registers ' +
+          'init_service_wrapper as a Gradio lambda, which has no callable API name.',
+        hint:
+          'You do not normally need this. Launching the engine with --enable-api forces ' +
+          'init_service=True, so the model is already loaded at startup and generation ' +
+          'works without it - continue with "load dataset" and "start training". To load a ' +
+          'different checkpoint, do it in the Gradio UI service-configuration section.',
+      });
+      return;
+    }
+
     const client = await getGradioClient();
     try {
-      // Try calling by function name (may work if Gradio auto-names it)
       const result = await client.predict('/init_service_wrapper', [
         checkpoint ?? '',
         configPath ?? '',
