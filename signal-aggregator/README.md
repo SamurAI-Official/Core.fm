@@ -181,6 +181,48 @@ a `scriptConsistency` ratio above 1 caused by counting `[Chorus]`'s brackets as 
 letters. French meter fit went from 0.73 to 0.91 and German from 0.78 to 0.96 after
 acting on what it flagged.
 
+### Per-script support (all ten target languages)
+
+The validator and the text layer are script-aware, because the earlier versions were
+ASCII-only in ways that failed **silently**:
+
+| Defect | Effect before | Now |
+|---|---|---|
+| No Cyrillic syllable branch | Russian lines measured as **1 syllable** (fell through to a Latin counter that strips non-Latin characters), so meter scoring was meaningless | explicit counter per script; a Russian line of 7 vowels measures 7 |
+| Latin-only rhyme key | `rhymes()` returned false for every non-Latin pair, silently costing ru/ja/ko/zh **0.2 of every score** | per-script keys: Cyrillic final nucleus, Japanese trailing morae, Hangul decomposed vowel+batchim, Han final character |
+| ASCII-only tokenizer | Japanese titles produced **zero tokens**, so jaccard-based comparisons all scored exactly 0 | Unicode word extraction; CJK runs become bigrams |
+| Section headers in script share | `[Verse 1]` is Latin text, so **every** non-Latin language lost ~15% of its script score and raised a spurious warning | measured over lyric lines only |
+
+Each script now has an **explicit entry** in `SYLLABLE_MODELS` and `rhymeKey`, so a
+missing model surfaces as a visibly coarse estimate rather than a silent zero.
+Script knowledge lives in one place (`src/lib/text.ts`) and is shared with the trend
+pipeline, so the two cannot drift apart on what counts as Cyrillic.
+
+**Tests:** `npm run test:lyrics` — 40 fixtures across Latin, Cyrillic, Japanese,
+Hangul and Han, covering syllable/mora counts, script detection, tokenization,
+chart-junk filtering, positive *and* negative rhyme cases, and accent-insensitive
+cliché matching. `validate.ts` previously had **no tests at all**, which is exactly how
+the two silent failures above survived; the suite now also pins the *old* behaviour so
+it cannot return.
+
+### Two limits, stated plainly
+
+- **Market fit and novelty remain structurally meaningless for non-Latin markets.**
+  Measured on real Japan data: the tokenizer fix took rows yielding no tokens from
+  **8 of 40 to 0 of 40**, and theme extraction recovered real Japanese terms — but mean
+  chart overlap was **unchanged at 0.0021 → 0.0021**, because `titleSimilarity` compares
+  an English style prompt against native-script titles. Different scripts correctly
+  overlap zero. Fixing this needs a different metric (genre/tempo agreement rather than
+  text overlap), not a better tokenizer, and is still open.
+- **CJK rhyme is an approximation.** Real Mandarin rhyme is a rime-plus-tone system and
+  Japanese assonance is mora-based; neither is derivable from orthography alone. The
+  metrics are labelled as approximations rather than presented as linguistic fact.
+
+**Proven on live data:** the Japan brief went from `19 terms | awich, paledusk,
+sakurashimeji, buddiis` (romanised proper nouns only) to `20 terms | awich, paledusk,
+ありふれた世界の果てに, 東京, …`, while US/GB/FR/DE/BR terms were unchanged — including
+`movin'` keeping its apostrophe, confirming the Latin path did not regress.
+
 ## Forecasting
 
 `src/forecast/forecast.ts` projects where a market is heading, using **damped linear
