@@ -18,12 +18,15 @@ const cases: Array<{ market: string; genre: string; language: string }> = [
   { market: 'ng', genre: 'afrobeats', language: 'en' },
   { market: 'gb', genre: 'rock', language: 'en' },
   { market: 'fr', genre: 'hip_hop_rap', language: 'fr' },
-  { market: 'fr', genre: 'regional_europe', language: 'fr' },
-  { market: 'de', genre: 'house_techno', language: 'de' },
   { market: 'de', genre: 'singer_songwriter', language: 'de' },
+  { market: 'es', genre: 'reggaeton', language: 'es' },
+  { market: 'it', genre: 'pop', language: 'it' },
+  { market: 'br', genre: 'pop', language: 'pt' },
   // No pack yet: these must report a fallback rather than claim the language.
   { market: 'jp', genre: 'j_pop', language: 'ja' },
-  { market: 'br', genre: 'pop', language: 'pt' },
+  { market: 'kr', genre: 'k_pop', language: 'ko' },
+  { market: 'cn', genre: 'regional_east_asia', language: 'zh' },
+  { market: 'ru', genre: 'pop', language: 'ru' },
   { market: 'in', genre: 'regional_south_asian', language: 'hi' },
 ];
 

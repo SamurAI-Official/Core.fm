@@ -9,12 +9,18 @@
 import { englishPack } from './en.js';
 import { frenchPack } from './fr.js';
 import { germanPack } from './de.js';
+import { spanishPack } from './es.js';
+import { italianPack } from './it.js';
+import { portuguesePack } from './pt.js';
 import type { LanguagePack } from './types.js';
 
 const PACKS: Record<string, LanguagePack> = {
   en: englishPack,
   fr: frenchPack,
   de: germanPack,
+  es: spanishPack,
+  it: italianPack,
+  pt: portuguesePack,
 };
 
 /**
@@ -22,7 +28,7 @@ const PACKS: Record<string, LanguagePack> = {
  * message than "unknown language" - the mechanism is identical either way.
  */
 const PENDING = new Set([
-  'ja', 'ko', 'zh', 'hi', 'pt', 'es', 'it', 'nl', 'ru', 'uk', 'ar', 'tr', 'id', 'ms',
+  'ja', 'ko', 'zh', 'ru', 'hi', 'nl', 'uk', 'ar', 'tr', 'id', 'ms',
   'th', 'vi', 'tl', 'sv', 'no', 'da', 'fi', 'pl', 'el', 'ur', 'he', 'sw', 'yo', 'ig', 'zu',
 ]);
 
@@ -67,11 +73,19 @@ export function resolvePack(requested: string): PackResolution {
 }
 
 /** Codes with a real pack, for docs, the UI and the design rationale. */
-export function availableLanguages(): Array<{ code: string; label: string; nativeLabel: string }> {
+export function availableLanguages(): Array<{
+  code: string;
+  label: string;
+  nativeLabel: string;
+  reviewStatus: 'unreviewed' | 'native-reviewed';
+}> {
   return Object.values(PACKS).map((pack) => ({
     code: pack.code,
     label: pack.label,
     nativeLabel: pack.nativeLabel,
+    // Defaults to 'unreviewed': no pack has had a native-speaker pass, and saying so
+    // is the honest position - a test can prove grammar, not naturalness.
+    reviewStatus: pack.reviewStatus ?? 'unreviewed',
   }));
 }
 

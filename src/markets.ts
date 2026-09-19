@@ -63,7 +63,18 @@ export const MARKET_CATALOG: Record<string, MarketInfo> = {
   nz: { name: 'New Zealand', language: 'en', region: 'Oceania' },
 };
 
-export const DEFAULT_MARKETS = ['us', 'gb', 'fr', 'de', 'br', 'jp', 'in', 'ng'];
+/**
+ * Default markets: one per language in the top-10 set, plus a second English market
+ * so the two largest English storefronts are both represented.
+ *
+ *   en -> us, gb   de -> de   fr -> fr   es -> es   it -> it
+ *   pt -> br       ru -> ru   ja -> jp   ko -> kr   zh -> cn
+ *
+ * `in` (hi) and `ng` (en) are no longer defaults: they are outside the top-10
+ * language set, so they must be opted into via the MARKETS env var. Every market
+ * here was verified to return chart data before being added.
+ */
+export const DEFAULT_MARKETS = ['us', 'gb', 'de', 'fr', 'es', 'it', 'br', 'ru', 'jp', 'kr', 'cn'];
 
 export function marketInfo(cc: string): MarketInfo {
   return MARKET_CATALOG[cc] ?? { name: cc.toUpperCase(), language: 'en', region: 'Unknown' };
