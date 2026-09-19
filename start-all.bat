@@ -41,13 +41,17 @@ if not exist "%ACESTEP_PATH%" (
 )
 
 REM Detect ACE-Step installation type
+REM NOTE (local fix): the UI generates through the Gradio endpoint
+REM (/generation_wrapper), which the REST-only api_server.py / acestep-api
+REM server does not expose. Always launch the Gradio server with --enable-api,
+REM and use the PyTorch LM backend on Windows (vllm is Linux-only).
 set API_COMMAND=
 if exist "%ACESTEP_PATH%\python_embeded\python.exe" (
     echo [+] Detected Windows Portable Package
-    set API_COMMAND=python_embeded\python acestep\api_server.py
+    set API_COMMAND=python_embeded\python acestep\acestep_v15_pipeline.py --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 ) else (
     echo [+] Detected Standard Installation
-    set API_COMMAND=uv run acestep-api --port 8001
+    set API_COMMAND=uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 )
 
 REM Get local IP for LAN access
@@ -89,11 +93,27 @@ timeout /t 2 /nobreak >nul
 echo.
 echo ==================================
 echo   All Services Running!
+REM Start the signal aggregator (Trend Intelligence view) when present.
+REM It powers the "Trends" tab: nation-level charts -> song designs -> renders.
+set AGGREGATOR_DIR=%~dp0..\signal-aggregator
+if exist "%AGGREGATOR_DIR%\package.json" (
+    if exist "%AGGREGATOR_DIR%\node_modules" (
+        echo [4/4] Starting signal aggregator...
+        start "Signal Aggregator" cmd /k "cd /d "%AGGREGATOR_DIR%" && npm run serve"
+        timeout /t 4 /nobreak >nul
+    ) else (
+        echo.
+        echo [skip] Signal aggregator found but dependencies are missing.
+        echo        Run: cd "%AGGREGATOR_DIR%" ^&^& npm install
+    )
+)
+
 echo ==================================
 echo.
 echo   ACE-Step API: http://localhost:8001
 echo   Backend:      http://localhost:3001
 echo   Frontend:     http://localhost:3000
+echo   Trends/aggregator: http://localhost:3002
 echo.
 if defined LOCAL_IP (
     echo   LAN Access:   http://%LOCAL_IP%:3000

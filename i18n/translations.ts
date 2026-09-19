@@ -8,6 +8,7 @@ export const translations = {
     search: 'Search',
     training: 'Training',
     news: 'News',
+    trends: 'Trends',
 
     // Theme
     lightMode: 'Light Mode',
@@ -607,6 +608,7 @@ export const translations = {
     search: '搜索',
     training: '训练',
     news: '新闻',
+    trends: '趋势',
 
     // Theme
     lightMode: '浅色模式',
@@ -1206,6 +1208,7 @@ export const translations = {
     search: '検索',
     training: 'トレーニング',
     news: 'ニュース',
+    trends: 'トレンド',
 
     // Theme
     lightMode: 'ライトモード',
@@ -1805,6 +1808,7 @@ export const translations = {
     search: '검색',
     training: '훈련',
     news: '뉴스',
+    trends: '트렌드',
 
     // Theme
     lightMode: '라이트 모드',

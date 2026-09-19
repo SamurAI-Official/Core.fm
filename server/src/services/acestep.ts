@@ -188,22 +188,28 @@ async function buildGradioArgs(params: GenerationParams): Promise<unknown[]> {
     useCot ? (params.useCotMetas ?? true) : false,                // 34: CoT Metas
     useCot ? (params.useCotCaption ?? true) : false,              // 35: CaptionRewrite
     useCot ? (params.useCotLanguage ?? true) : false,             // 36: CoT Language
-    params.isFormatCaption ?? false,                              // 37: Is Format Caption State
-    params.constrainedDecodingDebug ?? false,                     // 38: Constrained Decoding Debug
-    params.allowLmBatch ?? true,                                  // 39: ParallelThinking
-    params.getScores ?? false,                                    // 40: Auto Score
-    params.getLrc ?? false,                                       // 41: Auto LRC (timestamped lyrics)
-    params.scoreScale ?? 0.5,                                     // 42: Quality Score Sensitivity (0.01-1.0)
-    params.lmBatchChunkSize ?? 8,                                 // 43: LM Batch Chunk Size
-    params.trackName || null,                                     // 44: Track Name
-    params.completeTrackClasses || [],                            // 45: Track Names
-    true,                                                         // 46: Enable Normalization (ACE-Step v1.5, default true)
-    -1.0,                                                         // 47: Normalization DB (ACE-Step v1.5, default -1.0)
-    0.0,                                                          // 48: Latent Shift (ACE-Step v1.5, default 0.0)
-    1.0,                                                          // 49: Latent Rescale (ACE-Step v1.5, default 1.0)
-    params.autogen ?? false,                                      // 50: AutoGen
-    // Note: current_batch_index, total_batches, batch_queue, generation_params_state
-    // are hidden Gradio state variables and must NOT be passed via client.predict()
+    // NOTE (local fix for ACE-Step 1.5): `is_format_caption_state` is a Gradio
+    // State component in the current ACE-Step 1.5 build, so it is NOT part of
+    // /generation_wrapper's API arguments. Sending it here shifted every following
+    // argument by one position, which the server rejected with
+    // "Value False is less than minimum value 0.01." (getLrc -> score_scale).
+    // Do not re-add it unless the upstream UI argument list changes again.
+    params.constrainedDecodingDebug ?? false,                     // 37: Constrained Decoding Debug
+    params.allowLmBatch ?? true,                                  // 38: ParallelThinking
+    params.getScores ?? false,                                    // 39: Auto Score
+    params.getLrc ?? false,                                       // 40: Auto LRC (timestamped lyrics)
+    params.scoreScale ?? 0.5,                                     // 41: Quality Score Sensitivity (0.01-1.0)
+    params.lmBatchChunkSize ?? 8,                                 // 42: LM Batch Chunk Size
+    params.trackName || null,                                     // 43: Track Name
+    params.completeTrackClasses || [],                            // 44: Track Names
+    true,                                                         // 45: Enable Normalization (ACE-Step v1.5, default true)
+    -1.0,                                                         // 46: Normalization DB (ACE-Step v1.5, default -1.0)
+    0.0,                                                          // 47: Latent Shift (ACE-Step v1.5, default 0.0)
+    1.0,                                                          // 48: Latent Rescale (ACE-Step v1.5, default 1.0)
+    params.autogen ?? false,                                      // 49: AutoGen
+    // Note: is_format_caption_state, current_batch_index, total_batches,
+    // batch_queue and generation_params_state are hidden Gradio state variables
+    // and must NOT be passed via client.predict()
   ];
 }
 
@@ -491,15 +497,23 @@ async function processGeneration(
     return;
   }
 
-  // Try Gradio first
+  // Try Gradio first (the path that works against a Gradio-hosted ACE-Step API)
   const gradioUp = await isGradioAvailable();
   if (gradioUp) {
     try {
       await processGenerationViaGradio(jobId, params, job);
       return;
     } catch (error) {
-      console.error(`Job ${jobId}: Gradio generation failed, trying Python spawn fallback`, error);
-      // Fall through to Python spawn
+      // NOTE (local fix): Gradio was reachable, so this is a genuine generation
+      // failure (engine crashed, the API rejected an argument, or the job hung).
+      // Falling through to the Python spawn path replaced that real cause with a
+      // confusing "spawn ...\env\Scripts\python.exe ENOENT" for an interpreter a
+      // portable install does not ship, so report the actual error instead.
+      const message = (error as Error)?.message || 'unknown error';
+      console.error(`Job ${jobId}: Gradio generation failed`, error);
+      job.status = 'failed';
+      job.error = `ACE-Step generation failed: ${message}`;
+      return;
     }
   }
 

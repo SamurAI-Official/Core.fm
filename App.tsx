@@ -22,6 +22,7 @@ import { Toast, ToastType } from './components/Toast';
 import { SearchPage } from './components/SearchPage';
 import { TrainingPanel } from './components/TrainingPanel';
 import { NewsPage } from './components/NewsPage';
+import { TrendsView } from './components/TrendsView';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
 
@@ -1298,6 +1299,9 @@ function AppContent() {
 
       case 'news':
         return <NewsPage />;
+
+      case 'trends':
+        return <TrendsView showToast={showToast} />;
 
       case 'create':
       default:

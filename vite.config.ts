@@ -13,6 +13,14 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:3001',
           changeOrigin: true,
         },
+        // Signal aggregator (nation-level trend intelligence). Separate local
+        // service on port 3002; proxied so the browser can use relative URLs and
+        // LAN access works too. Start it with ..\start-aggregator.bat.
+        '/aggregator': {
+          target: env.AGGREGATOR_URL || 'http://127.0.0.1:3002',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/aggregator/, ''),
+        },
         '/audio': {
           target: 'http://127.0.0.1:3001',
           changeOrigin: true,
