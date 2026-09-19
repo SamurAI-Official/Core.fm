@@ -3,6 +3,7 @@
  * and easy to test.
  */
 import { createHash, randomUUID } from 'crypto';
+import { contentTokensText, tokenizeText } from './text.js';
 
 export const uuid = (): string => randomUUID();
 
@@ -71,40 +72,27 @@ export function pickWeighted<T>(entries: Array<[T, number]>, rng: () => number):
 /**
  * Extracts usable content words from a title/artist string.
  *
- * Chart titles contain acronyms, brands and numbered names ("GTAVI", "Track 2"),
- * which read as nonsense when injected into lyrics. This keeps only
- * word-like tokens: 4+ letters, contains a vowel, not an acronym, no digits.
+ * Delegates to the script-aware implementation in `lib/text.ts`. The Latin rules
+ * (4+ letters, contains a vowel, not an acronym, no digits) are preserved exactly,
+ * because they are what keeps chart junk like "GTAVI" out of lyric ad-libs. The
+ * non-Latin branches are new: without them every Japanese, Chinese or Russian title
+ * yielded zero tokens, which emptied `topTerms` and silently zeroed the novelty and
+ * market-fit scores that depend on it.
  */
 export function contentTokens(raw: string): string[] {
-  const out: string[] = [];
-  for (const part of raw.split(/[^A-Za-z0-9']+/)) {
-    if (part.length < 4 || part.length > 18) continue;
-    if (/^[A-Z0-9]{3,}$/.test(part)) continue; // acronym / brand styling
-    if (/\d/.test(part)) continue; // years and numbered titles
-    const lower = part.toLowerCase();
-    if (!/[aeiou]/.test(lower)) continue;
-    if (STOP_WORDS.has(lower)) continue;
-    out.push(lower);
-  }
-  return out;
+  return contentTokensText(raw);
 }
 
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'on', 'for', 'with', 'feat', 'ft',
-  'from', 'de', 'la', 'el', 'le', 'les', 'los', 'las', 'und', 'y', 'e', 'no', 'my',
-  'your', 'you', 'me', 'it', 'is', 'be', 'at', 'by', 'as', 'that', 'this', 'i', 'we',
-]);
-
-/** Normalized token list used for theme extraction and similarity checks. */
+/**
+ * Normalized token list used for theme extraction and similarity checks.
+ *
+ * Script-aware: CJK runs become bigrams (single Han characters are too common to
+ * carry signal), other scripts stay whole words. This also fixes Deezer BPM
+ * matching, which compares a title against candidates with jaccard - an empty token
+ * set scored exactly 0, so non-Latin titles could never match.
+ */
 export function tokenize(input: string): string[] {
-  return input
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+  return tokenizeText(input);
 }
 
 /** Jaccard similarity over token sets - used for novelty/artist-overlap checks. */

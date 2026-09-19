@@ -43,8 +43,14 @@ export interface LyricContext {
  */
 export type StageRenderer = (count: number, ctx: LyricContext, used: Set<string>) => string[];
 
-/** Script family. Drives script-mixing checks and syllable counting. */
-export type ScriptFamily = 'latin' | 'japanese' | 'hangul' | 'han' | 'devanagari' | 'cyrillic' | 'arabic';
+/**
+ * Script family. Lives in `lib/text.ts` so the trend pipeline and the lyric
+ * validator share one definition. Imported for local use and re-exported so pack
+ * authors can import it alongside `LanguagePack`.
+ */
+import type { ScriptFamily } from '../../lib/text.js';
+
+export type { ScriptFamily };
 
 export interface LanguagePack {
   /** Language code used for the engine's `vocal_language`. */

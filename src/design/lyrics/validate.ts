@@ -13,12 +13,20 @@
  * right about whether "every" is two syllables or three.
  */
 import { clamp, median, round } from '../../lib/util.js';
-import type { ScriptFamily } from './types.js';
+import { detectScript, scriptShare, type ScriptFamily } from '../../lib/text.js';
+
+/** Re-exported so existing callers keep working; implementation is in `lib/text.ts`. */
+export { detectScript };
 
 export interface LineMetric {
   section: string;
   line: string;
   syllables: number;
+  /**
+   * Whitespace-delimited words. Not meaningful for no-space scripts (zh, ja), where
+   * a whole line is a single "word" - reported for diagnostics only and never used
+   * in scoring.
+   */
   words: number;
 }
 
@@ -45,56 +53,43 @@ export interface LyricValidation {
 }
 
 /**
- * Script detection patterns.
+ * Small kana attach to the preceding mora and add none of their own.
  *
- * These use Unicode *script properties* rather than code-point ranges. A range like
- * `[\u0041-\u024F]` looks like "Latin" but also contains `[`, `]`, `\`, `^`, `_`
- * and the Latin-1 punctuation block - which silently counted the `[Chorus]` header
- * brackets as letters and pushed the consistency ratio above 1.
+ * Script detection and the shared script patterns live in `lib/text.ts` so the
+ * trend pipeline and the validator cannot drift apart on what counts as Cyrillic.
  */
-const SCRIPT_PATTERNS: Record<ScriptFamily, RegExp> = {
-  latin: /\p{Script=Latin}/gu,
-  cyrillic: /\p{Script=Cyrillic}/gu,
-  devanagari: /\p{Script=Devanagari}/gu,
-  japanese: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu,
-  hangul: /\p{Script=Hangul}/gu,
-  han: /\p{Script=Han}/gu,
-  arabic: /\p{Script=Arabic}/gu,
-};
-
-/** Latin letters, used as the denominator for script consistency. */
-const LETTER = /\p{L}/gu;
-
-/** Small kana attach to the preceding mora and add none of their own. */
 const SMALL_KANA = /[\u3041\u3043\u3045\u3047\u3049\u3083\u3085\u3087\u30A1\u30A3\u30A5\u30A7\u30A9\u30E3\u30E5\u30E7]/g;
 
+/**
+ * Borrowed phrases per language, flagged rather than shipped.
+ * Matching is accent- and case-insensitive (see `normalizeForMatch`).
+ */
 const CLICHES: Record<string, string[]> = {
   en: ['heart of gold', 'dancing in the rain', 'set me free', 'light up the sky', 'break these chains', 'rise above it all'],
-  fr: ['au fond de mon coeur', 'danser sous la pluie', "briser mes chaines", 'voir la lumiere'],
+  fr: ['au fond de mon coeur', 'danser sous la pluie', 'briser mes chaines', 'voir la lumiere'],
   de: ['im regen tanzen', 'herz aus gold', 'lass mich frei', 'den himmel erleuchten'],
+  es: ['corazon de oro', 'bailar bajo la lluvia', 'libre al fin', 'romper las cadenas', 'luz en el cielo'],
+  it: ['cuore doro', 'ballare sotto la pioggia', 'liberami', 'spezzare le catene'],
+  pt: ['coracao de ouro', 'dancar na chuva', 'me libertar', 'quebrar as correntes'],
+  ru: ['сердце из золота', 'танцевать под дождём', 'освободи меня', 'разорвать цепи'],
+  ja: ['心のままに', '雨の中で踊る', '自由になれ', '涙のち晴れ'],
+  ko: ['황금 같은 마음', '비 속에서 춤추다', '나를 놓아줘', '사슬을 끊어'],
+  zh: ['金子般的心', '在雨中跳舞', '让我自由', '打破枷锁'],
 };
 
 function countMatches(text: string, pattern: RegExp): number {
   return (text.match(pattern) ?? []).length;
 }
 
-/** Best-guess script of a string. Kana presence wins, since kanji alone is ambiguous. */
-export function detectScript(text: string): ScriptFamily | 'mixed' {
-  const scores: Array<[ScriptFamily, number]> = (Object.keys(SCRIPT_PATTERNS) as ScriptFamily[]).map(
-    (script) => [script, countMatches(text, SCRIPT_PATTERNS[script])],
-  );
-  const letters = scores.reduce((sum, [, value]) => sum + value, 0);
-  if (letters === 0) return 'latin';
-
-  const kana = countMatches(text, /[\u3040-\u30FF]/g);
-  if (kana > 0) return 'japanese';
-
-  scores.sort((a, b) => b[1] - a[1]);
-  const [top, topCount] = scores[0];
-  // Tolerate some foreign words (a name in the title, an English ad-lib) but
-  // report genuinely mixed text, which usually means a broken template.
-  return topCount / letters >= 0.6 ? top : 'mixed';
+/**
+ * Case- and accent-insensitive form used for cliche matching.
+ * NFKD + combining-mark stripping turns "cœur"/"coeur" and "corazón"/"corazon" into
+ * the same string, while CJK passes through untouched.
+ */
+function normalizeForMatch(input: string): string {
+  return input.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
 }
+
 
 /** Orthographic syllable estimate for Latin-script words. */
 function latinWordSyllables(word: string): number {
@@ -109,6 +104,49 @@ function latinWordSyllables(word: string): number {
   return Math.max(1, count);
 }
 
+/** Vowel letters that each mark a syllable in Cyrillic text (ru, plus uk/be). */
+const CYRILLIC_VOWELS = /[\u0430\u0435\u0451\u0438\u043E\u0443\u044B\u044D\u044E\u044F\u0456\u0457\u0454\u0410\u0415\u0401\u0418\u041E\u0423\u042B\u042D\u042E\u042F\u0406\u0407\u0404]/g;
+
+/**
+ * Syllable counters, one per script.
+ *
+ * Every script has an entry deliberately. The previous implementation special-cased
+ * Japanese/Devanagari/Hangul/Han and let everything else fall through to the Latin
+ * counter - which strips non-Latin characters, so a Russian line measured as **one
+ * syllable** and its meter score was meaningless. A missing model now shows up as a
+ * visibly coarse estimate instead of a silent zero.
+ */
+const SYLLABLE_MODELS: Record<ScriptFamily, (text: string) => number> = {
+  latin: (text) =>
+    text
+      .split(/\s+/)
+      .filter(Boolean)
+      .reduce((sum, word) => sum + latinWordSyllables(word), 0),
+
+  // One syllable per vowel letter.
+  cyrillic: (text) => countMatches(text, CYRILLIC_VOWELS),
+
+  // Kana are one mora each (small kana add none, the long-vowel mark adds one);
+  // kanji are approximated at one mora, since there is no reading dictionary.
+  japanese: (text) =>
+    countMatches(text, /[\u3040-\u30FF]/g) -
+    countMatches(text, SMALL_KANA) +
+    countMatches(text, /[\u4E00-\u9FFF]/g),
+
+  // Each Hangul syllable block is one syllable.
+  hangul: (text) => countMatches(text, /[\uAC00-\uD7AF]/g),
+
+  // Mandarin is one syllable per Han character.
+  han: (text) => countMatches(text, /[\u4E00-\u9FFF]/g),
+
+  // Base letters only: matras and other combining marks are not syllables.
+  devanagari: (text) => countMatches(text, /[\u0900-\u0939\u0958-\u095F\u0960-\u0961]/g),
+
+  // No vowel model implemented; long and short vowels are not distinguished, so
+  // letters/2 is a deliberately coarse placeholder. No pack uses this script yet.
+  arabic: (text) => countMatches(text, /\p{Script=Arabic}/gu) / 2,
+};
+
 /**
  * Estimated syllables (or morae, for Japanese) in one line.
  * Section headers must be stripped by the caller.
@@ -116,28 +154,8 @@ function latinWordSyllables(word: string): number {
 export function estimateSyllables(line: string, script: ScriptFamily): number {
   const text = line.replace(/[()]/g, ' ').trim();
   if (!text) return 0;
-
-  if (script === 'japanese') {
-    const kana = countMatches(text, /[\u3040-\u30FF]/g);
-    const small = countMatches(text, SMALL_KANA);
-    const kanji = countMatches(text, /[\u4E00-\u9FFF]/g);
-    // Kanji are approximated at one mora per character; without a reading
-    // dictionary that is the best available estimate.
-    return Math.max(1, kana - small + kanji);
-  }
-  if (script === 'devanagari') {
-    // Base letters only: matras and other combining marks are not syllables.
-    return Math.max(1, countMatches(text, /[\u0900-\u0939\u0958-\u095F\u0960-\u0961]/g));
-  }
-  if (script === 'hangul') {
-    return Math.max(1, Math.round(countMatches(text, /[\uAC00-\uD7AF]/g) * 1.0));
-  }
-  if (script === 'han') {
-    return Math.max(1, countMatches(text, /[\u4E00-\u9FFF]/g));
-  }
-
-  const words = text.split(/\s+/).filter(Boolean);
-  return Math.max(1, words.reduce((sum, word) => sum + latinWordSyllables(word), 0));
+  const model = SYLLABLE_MODELS[script] ?? SYLLABLE_MODELS.latin;
+  return Math.max(1, Math.round(model(text)));
 }
 
 /** Beats in one bar, honouring the meter (6/8 counts two beats of three). */
@@ -159,21 +177,83 @@ export function targetSyllablesPerLine(bpm: number, timeSignature: string, barsP
   return Math.max(3, round(beatsPerBar(timeSignature) * barsPerLine * syllablesPerBeat, 1));
 }
 
-/** Tail of a word: final vowel nucleus plus whatever follows it. */
-function phoneticTail(word: string): string {
+/** Tail of a Latin word: final vowel nucleus plus whatever follows it. */
+function latinTail(word: string): string {
   const w = word.toLowerCase().replace(/[^a-z\u00e0-\u024f]/g, '');
   const match = w.match(/[aeiouy\u00e0-\u00ff][^aeiouy\u00e0-\u00ff]*$/);
   return match ? match[0] : w.slice(-3);
 }
 
+/** Cyrillic vowels, used to find the final nucleus of a Russian/Ukrainian word. */
+const CYRILLIC_VOWEL_CLASS = '[\u0430\u0435\u0451\u0438\u043E\u0443\u044B\u044D\u044E\u044F\u0456\u0457\u0454]';
+
+/**
+ * A comparable "ending sound" for one word, per script.
+ *
+ * The Latin implementation strips everything outside `[a-z\u00e0-\u024f]`, which
+ * reduced any Cyrillic or Japanese ending to an empty string - so `rhymes()` returned
+ * false for every pair and those languages silently lost the 0.2 of the score that
+ * rhyme contributes. These keys are approximations and labelled as such: real
+ * Mandarin rhyme is a rime-plus-tone system and Japanese assonance is mora-based,
+ * neither of which is derivable from orthography alone.
+ */
+function rhymeKey(word: string, script: ScriptFamily): string {
+  switch (script) {
+    case 'cyrillic': {
+      const w = word.toLowerCase().replace(/[^\u0400-\u04FF]/g, '');
+      const match = w.match(new RegExp(`${CYRILLIC_VOWEL_CLASS}[^${CYRILLIC_VOWEL_CLASS.slice(1)}]*$`));
+      return match ? match[0] : w.slice(-3);
+    }
+    case 'japanese': {
+      // Mora-based: compare the trailing kana, ignoring small kana and the prolonged
+      // sound mark, so "とう" and "とー" still match.
+      const meaningful = Array.from(word)
+        .filter((ch) => /[\u3040-\u30FF]/.test(ch))
+        .filter((ch) => !SMALL_KANA.test(ch) && ch !== '\u30FC');
+      return meaningful.slice(-2).join('');
+    }
+    case 'hangul': {
+      // Hangul blocks decompose as 0xAC00 + (initial*21 + medial)*28 + final, so the
+      // final vowel and whether a batchim closes the syllable can be read exactly.
+      const blocks = Array.from(word).filter((ch) => /[\uAC00-\uD7AF]/.test(ch));
+      const last = blocks[blocks.length - 1];
+      if (!last) return '';
+      const offset = last.codePointAt(0)! - 0xac00;
+      const medial = Math.floor(offset / 28) % 21;
+      return `${medial}${offset % 28 === 0 ? 'v' : 'c'}`;
+    }
+    case 'han': {
+      // Final character only - see the note above on Mandarin rime and tone.
+      const chars = Array.from(word).filter((ch) => /\p{Script=Han}/u.test(ch));
+      return chars.slice(-1).join('');
+    }
+    case 'devanagari':
+    case 'arabic':
+      return Array.from(word).slice(-2).join('');
+    default:
+      return latinTail(word);
+  }
+}
+
+/**
+ * Minimum key width that may count as a rhyme.
+ * Latin and Cyrillic need a real tail ("ay" alone would match half the language);
+ * CJK keys are inherently one or two units wide.
+ */
+function minRhymeKeyLength(script: ScriptFamily): number {
+  return script === 'latin' || script === 'cyrillic' ? 2 : 1;
+}
+
 /** True when two line endings share a sound, i.e. rhyme or assonance. */
-function rhymes(a: string, b: string): boolean {
-  const lastA = a.trim().split(/\s+/).pop() ?? '';
-  const lastB = b.trim().split(/\s+/).pop() ?? '';
-  const tailA = phoneticTail(lastA);
-  const tailB = phoneticTail(lastB);
-  if (!tailA || !tailB || tailA.length < 2 || tailB.length < 2) return false;
-  return tailA === tailB;
+function rhymes(a: string, b: string, script: ScriptFamily): boolean {
+  const lastOf = (line: string) =>
+    line.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean).pop() ?? '';
+  const keyA = rhymeKey(lastOf(a), script);
+  const keyB = rhymeKey(lastOf(b), script);
+  if (!keyA || !keyB) return false;
+  const minLength = minRhymeKeyLength(script);
+  if (keyA.length < minLength || keyB.length < minLength) return false;
+  return keyA === keyB;
 }
 
 interface ParsedSection {
@@ -262,7 +342,7 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
   for (const section of sections) {
     for (let index = 1; index < section.lines.length; index += 1) {
       pairCount += 1;
-      if (rhymes(section.lines[index - 1], section.lines[index])) rhymingPairs += 1;
+      if (rhymes(section.lines[index - 1], section.lines[index], script)) rhymingPairs += 1;
     }
   }
   const rhymeDensity = pairCount === 0 ? 0 : round(rhymingPairs / pairCount, 3);
@@ -285,20 +365,19 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
   }
   const repetition = round(duplicated / metrics.length, 3);
 
-  const letters = countMatches(lyrics, LETTER);
-  const expected =
-    script === 'japanese'
-      ? countMatches(lyrics, SCRIPT_PATTERNS.japanese)
-      : countMatches(lyrics, SCRIPT_PATTERNS[script]);
-  // Clamped: the two patterns are counted on the same string, but a ratio above 1
-  // is never meaningful and would silently hide a counting mistake.
-  const scriptConsistency = letters === 0 ? 1 : Math.min(1, round(expected / letters, 3));
-  const detectedScript = detectScript(lyrics);
+  // Measured over lyric lines only. Section headers ("[Verse 1]", "[Chorus]") are
+  // engine control tokens, not sung text - counting them cost every non-Latin
+  // language ~15% of its script score and raised a spurious "letters outside script"
+  // warning on every Japanese, Chinese, Russian and Korean concept.
+  const body = sections.flatMap((entry) => entry.lines).join(' ');
+  const scriptConsistency = round(scriptShare(body, script), 3);
+  const detectedScript = detectScript(body);
 
-  // Cliches are language-specific, so look them up under the pack's base code.
+  // Cliches are language-specific, so look them up under the pack's base code, and
+  // compare accent-insensitively so "corazón" and "corazon" both match.
   const clicheBank = CLICHES[language.split('-')[0]] ?? [];
-  const lowered = lyrics.toLowerCase();
-  const cliches = clicheBank.filter((cliche) => lowered.includes(cliche));
+  const normalizedLyrics = normalizeForMatch(body);
+  const cliches = clicheBank.filter((cliche) => normalizedLyrics.includes(normalizeForMatch(cliche)));
 
   const issues: string[] = [];
   const overlong = metrics.filter((metric) => metric.syllables > highEnd);

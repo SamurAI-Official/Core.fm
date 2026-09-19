@@ -15,6 +15,7 @@
     "report": "tsx src/index.ts report",
     "forecast": "tsx src/index.ts forecast",
     "schedule": "tsx src/index.ts schedule",
+    "test:lyrics": "tsx scripts/lyric-validate-suite.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "typecheck": "tsc --noEmit"
   },
