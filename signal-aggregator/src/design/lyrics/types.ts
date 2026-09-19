@@ -62,6 +62,14 @@ export interface LanguagePack {
   script: ScriptFamily;
   /** False while a pack is a stub and must not be chosen as a real target. */
   complete: boolean;
+  /**
+   * Whether a native speaker has reviewed this pack's output.
+   *
+   * Every pack is machine-written and therefore starts 'unreviewed'. The field exists
+   * so the app, the rationale and the docs never imply a review that has not
+   * happened - grammatical correctness is verifiable by test, naturalness is not.
+   */
+  reviewStatus?: 'unreviewed' | 'native-reviewed';
 
   /** Builds the hook (subject + verb), agreeing in this language's grammar. */
   buildHook(rng: () => number): string;
