@@ -21,6 +21,7 @@ function getAudioDuration(filePath: string): number {
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
 import { getGradioClient, resetGradioClient, isGradioAvailable } from './gradio-client.js';
+import { resolveAceStepDir } from '../config/acestepPath.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,12 +31,9 @@ const ACESTEP_API = config.acestep.apiUrl;
 
 // Resolve ACE-Step path (from env or default relative path)
 function resolveAceStepPath(): string {
-  const envPath = process.env.ACESTEP_PATH;
-  if (envPath) {
-    return path.isAbsolute(envPath) ? envPath : path.resolve(process.cwd(), envPath);
-  }
-  // Default: sibling directory (server/src/services -> ../../../ACE-Step-1.5 = app/ACE-Step-1.5)
-  return path.resolve(__dirname, '../../../ACE-Step-1.5');
+  // Delegates to the shared resolver so this and config.datasets cannot drift apart
+  // again - they previously disagreed, which broke the training data paths.
+  return resolveAceStepDir();
 }
 
 // Resolve Python path cross-platform (supports venv and portable installations)

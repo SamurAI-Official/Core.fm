@@ -1,8 +1,19 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveAceStepDir } from './acestepPath.js';
 
-dotenv.config();
+// Load the app's .env from the repo root explicitly, and do it *before* the config
+// object below is built.
+//
+// Why the explicit path matters: `config.datasets` is evaluated at module-load time,
+// and `src/index.ts` imports this module before its own dotenv call runs - so an
+// ACESTEP_PATH defined in the repo-root .env used to arrive too late to influence the
+// training dataset paths (it silently fell back to a default directory the engine
+// never reads). The previous cwd-based call looked in server/.env, not the repo root.
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'),
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,8 +48,12 @@ export const config = {
 
   // Training datasets (inside ACE-Step-1.5 so Gradio can access them)
   datasets: {
-    dir: process.env.DATASETS_DIR || path.join(__dirname, '../../../ACE-Step-1.5/datasets'),
-    uploadsDir: process.env.DATASETS_UPLOADS_DIR || path.join(__dirname, '../../../ACE-Step-1.5/datasets/uploads'),
+    // Training datasets (inside ACE-Step-1.5 so Gradio can reach them). Resolved via
+    // resolveAceStepDir() so ACESTEP_PATH is honoured - the previous hardcoded relative
+    // path ignored it and pointed at a directory that does not exist when the engine is
+    // a sibling of this repo rather than nested inside it.
+    dir: process.env.DATASETS_DIR || path.join(resolveAceStepDir(), 'datasets'),
+    uploadsDir: process.env.DATASETS_UPLOADS_DIR || path.join(resolveAceStepDir(), 'datasets/uploads'),
   },
 
   // Simplified JWT (for local session, not critical security)
