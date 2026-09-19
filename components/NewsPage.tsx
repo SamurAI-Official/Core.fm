@@ -3,6 +3,31 @@ import { Newspaper, X, Star, Github } from 'lucide-react';
 import { useI18n } from '../context/I18nContext';
 import newsData from '../data/news.json';
 
+/**
+ * Repository links shown in the News section.
+ *
+ * The upstream UI and the original project stay listed on purpose: this app is a
+ * fork of fspecii/ace-step-ui, so users should be able to reach the source it came
+ * from rather than only the fork.
+ */
+const REPOS: Array<{ repo: string; href: string; note: string }> = [
+  {
+    repo: 'SamurAI-Official/Core.fm',
+    href: 'https://github.com/SamurAI-Official/Core.fm',
+    note: 'This project - star it to support development',
+  },
+  {
+    repo: 'SamurAI-Official/ShugoCore',
+    href: 'https://github.com/SamurAI-Official/ShugoCore',
+    note: 'Our first project',
+  },
+  {
+    repo: 'fspecii/ace-step-ui',
+    href: 'https://github.com/fspecii/ace-step-ui',
+    note: 'Original source repo this UI was forked from',
+  },
+];
+
 interface NewsItem {
   id: string;
   date: string;
@@ -133,23 +158,28 @@ export const NewsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Star Repo */}
-        <a
-          href="https://github.com/fspecii/ace-step-ui"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 mb-8 px-5 py-4 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card hover:border-zinc-300 dark:hover:border-white/10 transition-all group"
-        >
-          <Github size={20} className="text-zinc-500 dark:text-zinc-400 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">fspecii/ace-step-ui</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Star the repo to support the project</p>
-          </div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 text-sm font-medium group-hover:bg-amber-500/15 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors flex-shrink-0">
-            <Star size={14} />
-            Star
-          </div>
-        </a>
+        {/* Repositories: ours, our first project, and the original source */}
+        <div className="space-y-3 mb-8">
+          {REPOS.map((entry) => (
+            <a
+              key={entry.href}
+              href={entry.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-5 py-4 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card hover:border-zinc-300 dark:hover:border-white/10 transition-all group"
+            >
+              <Github size={20} className="text-zinc-500 dark:text-zinc-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{entry.repo}</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">{entry.note}</p>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 text-sm font-medium group-hover:bg-amber-500/15 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors flex-shrink-0">
+                <Star size={14} />
+                Star
+              </div>
+            </a>
+          ))}
+        </div>
 
         {/* Active News */}
         {activeNews.length > 0 ? (
