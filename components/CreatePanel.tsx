@@ -1060,7 +1060,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   return (
     <div
-      className="relative flex flex-col h-full bg-zinc-50 dark:bg-suno-panel w-full overflow-y-auto custom-scrollbar transition-colors duration-300"
+      className="relative flex flex-col h-full bg-zinc-50 dark:bg-corefm-panel w-full overflow-y-auto custom-scrollbar transition-colors duration-300"
       onDrop={handleWorkspaceDrop}
       onDragOver={handleWorkspaceDragOver}
     >
@@ -1209,7 +1209,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         {!customMode && (
           <div className="space-y-5">
             {/* Song Description */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+            <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
               <div className="px-3 py-2.5 flex items-center justify-between border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
                 <span className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   {t('describeYourSong')}
@@ -1250,7 +1250,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <select
                   value={vocalLanguage}
                   onChange={(e) => setVocalLanguage(e.target.value)}
-                  className="w-full bg-white dark:bg-suno-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
+                  className="w-full bg-white dark:bg-corefm-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
                 >
                   {VOCAL_LANGUAGE_KEYS.map(lang => (
                     <option key={lang.value} value={lang.value}>{t(lang.key)}</option>
@@ -1281,7 +1281,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </div>
 
             {/* Quick Settings (Simple Mode) */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+            <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
               <h3 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-2">
                 <Sliders size={14} />
                 {t('quickSettings')}
@@ -1547,7 +1547,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             {/* Lyrics Input */}
             <div
               ref={lyricsRef}
-              className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20 relative flex flex-col"
+              className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20 relative flex flex-col"
               style={{ height: 'auto' }}
             >
               <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5 flex-shrink-0">
@@ -1561,7 +1561,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
                       instrumental
                         ? 'bg-pink-600 text-white border-pink-500'
-                        : 'bg-white dark:bg-suno-card border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/10'
+                        : 'bg-white dark:bg-corefm-card border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/10'
                     }`}
                   >
                     {instrumental ? t('instrumental') : t('vocal')}
@@ -1600,7 +1600,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </div>
 
             {/* Style Input */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20">
+            <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20">
               <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5">
                 <div>
                   <div className="flex items-center gap-2">
@@ -1663,7 +1663,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </div>
 
             {/* Title Input */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+            <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
               <div className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
                 {t('title')}
               </div>
@@ -1706,7 +1706,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <select
                   value={vocalLanguage}
                   onChange={(e) => setVocalLanguage(e.target.value)}
-                  className="w-full bg-white dark:bg-suno-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
+                  className="w-full bg-white dark:bg-corefm-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
                 >
                   {VOCAL_LANGUAGE_KEYS.map(lang => (
                     <option key={lang.value} value={lang.value}>{t(lang.key)}</option>
@@ -1743,7 +1743,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           <>
             <button
               onClick={() => setShowLoraPanel(!showLoraPanel)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Sliders size={16} className="text-zinc-500" />
@@ -1753,7 +1753,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </button>
 
             {showLoraPanel && (
-              <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+              <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
                 {/* LoRA Path Input */}
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraPath')}</label>
@@ -1831,7 +1831,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         )}
 
         {/* MUSIC PARAMETERS */}
-        <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+        <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
           <h3 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-2">
             <Sliders size={14} />
             {t('musicParameters')}
@@ -1883,7 +1883,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         {/* ADVANCED SETTINGS */}
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
         >
           <div className="flex items-center gap-2">
             <Settings2 size={16} className="text-zinc-500" />
@@ -1893,7 +1893,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         </button>
 
         {showAdvanced && (
-          <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+          <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
             {/* Load Parameters from JSON */}
             <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-zinc-300 dark:border-white/15 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
               <Upload size={14} />
@@ -2115,7 +2115,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </button>
 
             {showLmParams && (
-              <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+              <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
                 {/* LM Temperature */}
                 <EditableSlider
                   label={t('lmTemperature')}
@@ -2768,7 +2768,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       )}
 
       {/* Footer Create Button */}
-      <div className="p-4 mt-auto sticky bottom-0 bg-zinc-50/95 dark:bg-suno-panel/95 backdrop-blur-sm z-10 border-t border-zinc-200 dark:border-white/5 space-y-3">
+      <div className="p-4 mt-auto sticky bottom-0 bg-zinc-50/95 dark:bg-corefm-panel/95 backdrop-blur-sm z-10 border-t border-zinc-200 dark:border-white/5 space-y-3">
         <button
           onClick={handleGenerate}
           className="w-full h-12 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all transform active:scale-[0.98] bg-gradient-to-r from-orange-500 to-pink-600 text-white shadow-lg hover:brightness-110"

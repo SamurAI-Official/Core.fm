@@ -117,7 +117,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
     };
 
     if (!song) return (
-        <div className="w-full h-full bg-zinc-50 dark:bg-suno-panel border-l border-zinc-200 dark:border-white/5 flex items-center justify-center text-zinc-400 dark:text-zinc-500 text-sm transition-colors duration-300">
+        <div className="w-full h-full bg-zinc-50 dark:bg-corefm-panel border-l border-zinc-200 dark:border-white/5 flex items-center justify-center text-zinc-400 dark:text-zinc-500 text-sm transition-colors duration-300">
             <div className="flex flex-col items-center gap-2">
                 <Music size={40} className="text-zinc-300 dark:text-zinc-700" />
                 <p>{t('selectSongToView')}</p>
@@ -126,10 +126,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
     );
 
     return (
-        <div className="w-full h-full bg-zinc-50 dark:bg-suno-panel flex flex-col border-l border-zinc-200 dark:border-white/5 relative transition-colors duration-300">
+        <div className="w-full h-full bg-zinc-50 dark:bg-corefm-panel flex flex-col border-l border-zinc-200 dark:border-white/5 relative transition-colors duration-300">
 
             {/* Header */}
-            <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-200 dark:border-white/5 flex-shrink-0 bg-zinc-50/50 dark:bg-suno-panel/50 backdrop-blur-md z-10">
+            <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-200 dark:border-white/5 flex-shrink-0 bg-zinc-50/50 dark:bg-corefm-panel/50 backdrop-blur-md z-10">
                 <span className="font-semibold text-sm text-zinc-900 dark:text-white">{t('songDetails')}</span>
                 <button
                     onClick={onClose}

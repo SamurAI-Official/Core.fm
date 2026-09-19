@@ -1,4 +1,4 @@
-# ACE-Step UI — Internationalization Guide
+# Core.fm — Internationalization Guide
 
 ## Overview
 

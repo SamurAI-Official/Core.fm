@@ -217,7 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, t
                         </div>
                         <div className="pl-7 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
                             <p>{t('version')} 2.0.0</p>
-                            <p>ACE-Step UI - {t('localAIMusicGenerator')}</p>
+                            <p>Core.fm - {t('localAIMusicGenerator')}</p>
                             <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">
                                 {t('poweredBy')}
                             </p>

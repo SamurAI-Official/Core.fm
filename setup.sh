@@ -1,10 +1,10 @@
 #!/bin/bash
-# ACE-Step UI Setup Script
+# Core.fm Setup Script
 
 set -e
 
 echo "=================================="
-echo "  ACE-Step UI Setup"
+echo "  Core.fm Setup"
 echo "=================================="
 
 # Check if ACE-Step exists
@@ -18,7 +18,7 @@ if [ ! -d "$ACESTEP_PATH" ]; then
     echo "  git clone https://github.com/ace-step/ACE-Step-1.5"
     echo "  cd ACE-Step-1.5"
     echo "  uv venv && uv pip install -e ."
-    echo "  cd ../ace-step-ui"
+    echo "  cd <folder containing this script>"
     echo "  ./setup.sh"
     exit 1
 fi
@@ -38,7 +38,7 @@ ACESTEP_PATH=$(cd "$ACESTEP_PATH" && pwd)
 # Create .env file
 echo "Creating .env file..."
 cat > .env << EOF
-# ACE-Step UI Configuration
+# Core.fm Configuration
 
 # Path to ACE-Step installation
 ACESTEP_PATH=$ACESTEP_PATH

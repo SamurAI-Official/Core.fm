@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar */}
       <div className={`
-        flex flex-col h-full bg-white dark:bg-suno-sidebar border-r border-zinc-200 dark:border-white/5 flex-shrink-0 py-4 overflow-y-auto scrollbar-hide transition-all duration-300
+        flex flex-col h-full bg-white dark:bg-corefm-sidebar border-r border-zinc-200 dark:border-white/5 flex-shrink-0 py-4 overflow-y-auto scrollbar-hide transition-all duration-300
         fixed left-0 top-0 z-50 md:relative
         ${isOpen ? 'w-[200px]' : 'w-[72px]'}
       `}>

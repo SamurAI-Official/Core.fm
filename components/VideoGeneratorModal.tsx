@@ -888,7 +888,7 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
     const a = document.createElement('a');
     a.style.display = 'none';
     a.href = url;
-    a.download = `${song.title || 'suno-video'}.mp4`;
+    a.download = `${song.title || 'corefm-video'}.mp4`;
     document.body.appendChild(a);
     a.click();
 
@@ -1700,7 +1700,7 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-0 md:p-4 animate-in fade-in duration-200">
 
-      <div className={`bg-suno-card w-full h-full md:max-w-7xl md:h-[90vh] md:rounded-2xl border-0 md:border border-white/10 overflow-hidden shadow-2xl relative ${isMobile ? 'flex flex-col' : 'flex'}`}>
+      <div className={`bg-corefm-card w-full h-full md:max-w-7xl md:h-[90vh] md:rounded-2xl border-0 md:border border-white/10 overflow-hidden shadow-2xl relative ${isMobile ? 'flex flex-col' : 'flex'}`}>
 
         {/* Close Button */}
         <button onClick={onClose} className="absolute top-3 right-3 md:top-4 md:right-4 z-50 p-2 bg-black/50 hover:bg-white/20 rounded-full text-white transition-colors">
@@ -1742,7 +1742,7 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
         )}
 
         {/* Sidebar Controls */}
-        <div className={`${isMobile ? 'flex-1 overflow-hidden' : 'w-96'} bg-suno-panel ${isMobile ? '' : 'border-r border-white/5'} flex flex-col z-20`}>
+        <div className={`${isMobile ? 'flex-1 overflow-hidden' : 'w-96'} bg-corefm-panel ${isMobile ? '' : 'border-r border-white/5'} flex flex-col z-20`}>
             {/* Header - Desktop only */}
             {!isMobile && (
               <div className="p-6 border-b border-white/5">

@@ -3,19 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ACE-Step UI - Local AI Music Generator</title>
+    <title>Core.fm - Local AI Music Generator</title>
 
     <!-- Primary Meta Tags -->
-    <meta name="title" content="ACE-Step UI - Local AI Music Generator" />
-    <meta name="description" content="Create AI music locally with ACE-Step UI. Free and open source music generation powered by ACE-Step 1.5." />
-    <meta name="keywords" content="AI music generator, ACE-Step, local AI, music generation, text to music, AI song generator" />
+    <meta name="title" content="Core.fm - Local AI Music Generator" />
+    <meta name="description" content="Create AI music locally with Core.fm. Free and open source music generation powered by ACE-Step 1.5." />
+    <meta name="keywords" content="Core.fm, AI music generator, ACE-Step, local AI, music generation, text to music, AI song generator" />
     <meta name="robots" content="index, follow" />
-    <meta name="author" content="ACE-Step UI" />
+    <meta name="author" content="Core.fm" />
 
     <!-- Additional SEO -->
-    <meta name="theme-color" content="#ec4899" />
-    <meta name="application-name" content="ACE-Step UI" />
-    <meta name="apple-mobile-web-app-title" content="ACE-Step UI" />
+    <!-- Matches --corefm-bg so the browser chrome blends with the app.
+         Set an accent hex here once Core.fm has one; the palette namespace is
+         `corefm` in the Tailwind config below. -->
+    <meta name="theme-color" content="#09090b" />
+    <meta name="application-name" content="Core.fm" />
+    <meta name="apple-mobile-web-app-title" content="Core.fm" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -27,7 +30,7 @@
         theme: {
           extend: {
             colors: {
-              suno: {
+              corefm: {
                 DEFAULT: '#09090b',
                 sidebar: '#000000',
                 panel: '#121214',
@@ -259,7 +262,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-suno text-zinc-900 dark:text-white overflow-hidden transition-colors duration-300">
+  <body class="bg-corefm text-zinc-900 dark:text-white overflow-hidden transition-colors duration-300">
     <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>

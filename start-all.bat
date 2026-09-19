@@ -1,10 +1,10 @@
 @echo off
-REM ACE-Step UI Complete Startup Script for Windows
-REM Starts ACE-Step API + Backend + Frontend
+REM Core.fm Complete Startup Script for Windows
+REM Starts the ACE-Step 1.5 engine API + the Core.fm backend and frontend
 setlocal
 
 echo ==================================
-echo   ACE-Step Complete Startup
+echo   Core.fm Complete Startup
 echo ==================================
 echo.
 
@@ -33,7 +33,7 @@ if not exist "%ACESTEP_PATH%" (
     echo.
     echo Warning: ACE-Step not found at %ACESTEP_PATH%
     echo.
-    echo Please set ACESTEP_PATH or place ACE-Step-1.5 next to ace-step-ui
+    echo Please set ACESTEP_PATH, or place the ACE-Step-1.5 folder next to this one
     echo Example: set ACESTEP_PATH=C:\ACE-Step-1.5
     echo.
     pause
@@ -67,25 +67,25 @@ echo   Starting All Services...
 echo ==================================
 echo.
 
-REM Start ACE-Step API in new window
-echo [1/3] Starting ACE-Step API server...
-start "ACE-Step API Server" cmd /k "cd /d "%ACESTEP_PATH%" && %API_COMMAND%"
+REM Start the ACE-Step 1.5 engine API in its own window
+echo [1/4] Starting ACE-Step 1.5 engine API...
+start "ACE-Step 1.5 Engine" cmd /k "cd /d "%ACESTEP_PATH%" && %API_COMMAND%"
 
 REM Wait for API to start
 echo Waiting for API to initialize...
 timeout /t 5 /nobreak >nul
 
 REM Start backend in new window
-echo [2/3] Starting backend server...
-start "ACE-Step UI Backend" cmd /k "cd /d "%~dp0server" && npm run dev"
+echo [2/4] Starting backend server...
+start "Core.fm Backend" cmd /k "cd /d "%~dp0server" && npm run dev"
 
 REM Wait for backend to start
 echo Waiting for backend to start...
 timeout /t 3 /nobreak >nul
 
 REM Start frontend in new window
-echo [3/3] Starting frontend...
-start "ACE-Step UI Frontend" cmd /k "cd /d "%~dp0" && npm run dev"
+echo [3/4] Starting frontend...
+start "Core.fm Frontend" cmd /k "cd /d "%~dp0" && npm run dev"
 
 REM Wait a moment
 timeout /t 2 /nobreak >nul
@@ -93,24 +93,32 @@ timeout /t 2 /nobreak >nul
 echo.
 echo ==================================
 echo   All Services Running!
-REM Start the signal aggregator (Trend Intelligence view) when present.
+REM Start the Trends service (signal aggregator) when present.
 REM It powers the "Trends" tab: nation-level charts -> song designs -> renders.
-set AGGREGATOR_DIR=%~dp0..\signal-aggregator
-if exist "%AGGREGATOR_DIR%\package.json" (
-    if exist "%AGGREGATOR_DIR%\node_modules" (
-        echo [4/4] Starting signal aggregator...
-        start "Signal Aggregator" cmd /k "cd /d "%AGGREGATOR_DIR%" && npm run serve"
-        timeout /t 4 /nobreak >nul
-    ) else (
-        echo.
-        echo [skip] Signal aggregator found but dependencies are missing.
-        echo        Run: cd "%AGGREGATOR_DIR%" ^&^& npm install
-    )
+REM Two layouts are supported: vendored inside this repo, or a sibling clone.
+REM Pick whichever actually has dependencies installed first - a present but
+REM uninstalled vendored copy must not shadow a working sibling clone.
+set AGGREGATOR_DIR=
+if exist "%~dp0signal-aggregator\node_modules" set AGGREGATOR_DIR=%~dp0signal-aggregator
+if not defined AGGREGATOR_DIR if exist "%~dp0..\signal-aggregator\node_modules" set AGGREGATOR_DIR=%~dp0..\signal-aggregator
+if not defined AGGREGATOR_DIR if exist "%~dp0signal-aggregator\package.json" set AGGREGATOR_DIR=%~dp0signal-aggregator
+if not defined AGGREGATOR_DIR if exist "%~dp0..\signal-aggregator\package.json" set AGGREGATOR_DIR=%~dp0..\signal-aggregator
+
+if not defined AGGREGATOR_DIR goto :aggregator_done
+if not exist "%AGGREGATOR_DIR%\node_modules" (
+    echo.
+    echo [skip] Trends service found at "%AGGREGATOR_DIR%" but dependencies are missing.
+    echo        Run: cd /d "%AGGREGATOR_DIR%" ^&^& npm install
+    goto :aggregator_done
 )
+echo [4/4] Starting Trends service (signal aggregator)...
+start "Core.fm Trends" cmd /k "cd /d "%AGGREGATOR_DIR%" && npm run serve"
+timeout /t 4 /nobreak >nul
+:aggregator_done
 
 echo ==================================
 echo.
-echo   ACE-Step API: http://localhost:8001
+echo   ACE-Step 1.5 engine API: http://localhost:8001
 echo   Backend:      http://localhost:3001
 echo   Frontend:     http://localhost:3000
 echo   Trends/aggregator: http://localhost:3002

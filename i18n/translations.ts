@@ -20,7 +20,7 @@ export const translations = {
     settings: 'Settings',
     
     // Username Modal
-    welcomeTitle: 'Welcome to ACE-Step UI',
+    welcomeTitle: 'Welcome to Core.fm',
     welcomeSubtitle: 'Enter your name to get started creating AI music',
     yourName: 'Your Name',
     enterYourName: 'Enter your name',
@@ -44,7 +44,7 @@ export const translations = {
     failedToDeleteSong: 'Failed to delete song',
     
     // Sidebar
-    aceStepUI: 'ACE-Step UI',
+    aceStepUI: 'Core.fm',
     collapseSidebar: 'Collapse Sidebar',
     expandSidebar: 'Expand Sidebar',
 
@@ -510,7 +510,7 @@ export const translations = {
     shareViaEmail: 'Share via Email',
     copyLink: 'Copy Link',
     emailSubject: 'Check out this AI song',
-    emailBody: 'Hey!\n\nI created this AI-generated song and thought you\'d love it:\n\n"{title}" by {creator}\n{style}\n\nListen here: {url}\n\nMade with ACE-Step UI - free and open source local AI music generation!',
+    emailBody: 'Hey!\n\nI created this AI-generated song and thought you\'d love it:\n\n"{title}" by {creator}\n{style}\n\nListen here: {url}\n\nMade with Core.fm - free and open source local AI music generation!',
     
     // Reference Modal
     referenceModalTitle: 'Reference',
@@ -620,7 +620,7 @@ export const translations = {
     settings: '设置',
     
     // Username Modal
-    welcomeTitle: '欢迎使用 ACE-Step UI',
+    welcomeTitle: '欢迎使用 Core.fm',
     welcomeSubtitle: '输入您的名字开始创作 AI 音乐',
     yourName: '您的名字',
     enterYourName: '请输入您的名字',
@@ -644,7 +644,7 @@ export const translations = {
     failedToDeleteSong: '删除歌曲失败',
     
     // Sidebar
-    aceStepUI: 'ACE-Step UI',
+    aceStepUI: 'Core.fm',
     collapseSidebar: '收起侧边栏',
     expandSidebar: '展开侧边栏',
 
@@ -1110,7 +1110,7 @@ export const translations = {
     shareViaEmail: '通过邮件分享',
     copyLink: '复制链接',
     emailSubject: '来听听这首AI歌曲',
-    emailBody: '嘿！\n\n我创作了这首AI生成的歌曲，觉得你会喜欢：\n\n《{title}》- {creator}\n{style}\n\n点击收听：{url}\n\n使用 ACE-Step UI 制作 - 免费开源的本地AI音乐生成工具！',
+    emailBody: '嘿！\n\n我创作了这首AI生成的歌曲，觉得你会喜欢：\n\n《{title}》- {creator}\n{style}\n\n点击收听：{url}\n\n使用 Core.fm 制作 - 免费开源的本地AI音乐生成工具！',
     
     // Reference Modal
     referenceModalTitle: '参考音频',
@@ -1220,7 +1220,7 @@ export const translations = {
     settings: '設定',
     
     // Username Modal
-    welcomeTitle: 'ACE-Step UIへようこそ',
+    welcomeTitle: 'Core.fmへようこそ',
     welcomeSubtitle: 'AI音楽作成を始めるために名前を入力してください',
     yourName: 'お名前',
     enterYourName: '名前を入力',
@@ -1244,7 +1244,7 @@ export const translations = {
     failedToDeleteSong: '曲の削除に失敗しました',
     
     // Sidebar
-    aceStepUI: 'ACE-Step UI',
+    aceStepUI: 'Core.fm',
     collapseSidebar: 'サイドバーを折りたたむ',
     expandSidebar: 'サイドバーを展開',
 
@@ -1710,7 +1710,7 @@ export const translations = {
     shareViaEmail: 'メールで共有',
     copyLink: 'リンクをコピー',
     emailSubject: 'このAI曲をチェックしてください',
-    emailBody: 'こんにちは！\n\n私がこのAI生成の曲を作りました。気に入ってもらえると思います：\n\n「{title}」by {creator}\n{style}\n\nここで聴いてください：{url}\n\nACE-Step UIで作成 - 無料でオープンソースのローカルAI音楽生成！',
+    emailBody: 'こんにちは！\n\n私がこのAI生成の曲を作りました。気に入ってもらえると思います：\n\n「{title}」by {creator}\n{style}\n\nここで聴いてください：{url}\n\nCore.fmで作成 - 無料でオープンソースのローカルAI音楽生成！',
     
     // Reference Modal
     referenceModalTitle: 'リファレンス',
@@ -1820,7 +1820,7 @@ export const translations = {
     settings: '설정',
     
     // Username Modal
-    welcomeTitle: 'ACE-Step UI에 오신 것을 환영합니다',
+    welcomeTitle: 'Core.fm에 오신 것을 환영합니다',
     welcomeSubtitle: 'AI 음악 제작을 시작하려면 이름을 입력하세요',
     yourName: '이름',
     enterYourName: '이름 입력',
@@ -1844,7 +1844,7 @@ export const translations = {
     failedToDeleteSong: '곡 삭제에 실패했습니다',
     
     // Sidebar
-    aceStepUI: 'ACE-Step UI',
+    aceStepUI: 'Core.fm',
     collapseSidebar: '사이드바 접기',
     expandSidebar: '사이드바 펼치기',
 
@@ -2310,7 +2310,7 @@ export const translations = {
     shareViaEmail: '이메일로 공유',
     copyLink: '링크 복사',
     emailSubject: '이 AI 곡을 들어보세요',
-    emailBody: '안녕하세요!\n\n제가 만든 이 AI 생성 곡을 들어보세요. 마음에 드실 거예요:\n\n"{title}" - {creator}\n{style}\n\n여기서 들으세요: {url}\n\nACE-Step UI로 제작 - 무료 오픈 소스 로컬 AI 음악 생성!',
+    emailBody: '안녕하세요!\n\n제가 만든 이 AI 생성 곡을 들어보세요. 마음에 드실 거예요:\n\n"{title}" - {creator}\n{style}\n\n여기서 들으세요: {url}\n\nCore.fm로 제작 - 무료 오픈 소스 로컬 AI 음악 생성!',
     
     // Reference Modal
     referenceModalTitle: '참조 음악',

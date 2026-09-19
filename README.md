@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/🎵-ACE--Step_UI-ff69b4?style=for-the-badge&labelColor=1a1a1a" alt="ACE-Step UI" height="60">
+  <img src="https://img.shields.io/badge/🎵-Core.fm-18181b?style=for-the-badge&labelColor=1a1a1a" alt="Core.fm" height="60">
 </p>
 
-<h1 align="center">ACE-Step UI</h1>
+<h1 align="center">Core.fm</h1>
 
 <p align="center">
-  <strong>The Ultimate Open Source Suno Alternative</strong><br>
+  <strong>Local-first AI music studio with cross-market trend intelligence</strong><br>
   <em>Seamless integration with <a href="https://github.com/ace-step/ACE-Step-1.5">ACE-Step 1.5</a> - The Open Source AI Music Generation Model</em>
 </p>
 
@@ -50,7 +50,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="ACE-Step UI - Open Source Suno Alternative" width="100%">
+  <img src="docs/demo.gif" alt="Core.fm - local AI music studio" width="100%">
 </p>
 
 <p align="center">
@@ -59,11 +59,11 @@
 
 ---
 
-## 🚀 Why ACE-Step UI?
+## 🚀 Why Core.fm?
 
-**Tired of paying $10+/month for Suno or Udio?** ACE-Step 1.5 is the **open source Suno killer** that runs locally on your own GPU - and ACE-Step UI gives you a **beautiful, professional interface** to harness its full power.
+**Core.fm runs entirely on your own GPU.** Generation is powered by [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (MIT licensed). On top of it, Core.fm adds the layer that makes generated music useful for actually releasing it: cross-market trend intelligence, market-fit song design, and a rating loop that learns what works in each country.
 
-| Feature | Suno/Udio | ACE-Step UI |
+| Feature | Cloud AI music services | Core.fm |
 |---------|-----------|-------------|
 | **Cost** | $10-50/month | **FREE forever** |
 | **Privacy** | Cloud-based | **100% local** |
@@ -160,7 +160,7 @@
 
 ### 🎯 Pinokio - 1-Click Install (Recommended for All Users!)
 
-The easiest way to get ACE-Step UI up and running on **any platform** — no terminal, no manual setup:
+The easiest way to get Core.fm up and running on **any platform** — no terminal, no manual setup:
 
 <p align="center">
   <a href="https://beta.pinokio.co/apps/github-com-cocktailpeanut-ace-step-ui-pinokio">
@@ -192,7 +192,7 @@ REM 1. Start ACE-Step Gradio (with API endpoints)
 cd C:\ACE-Step-1.5
 python_embeded\python -m acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 
-REM 2. Start ACE-Step UI (in another terminal)
+REM 2. Start Core.fm (in another terminal)
 cd ace-step-ui
 start.bat
 ```
@@ -218,7 +218,7 @@ cd ace-step-ui
 cd /path/to/ACE-Step-1.5
 uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 
-# 2. Start ACE-Step UI (in another terminal)
+# 2. Start Core.fm (in another terminal)
 cd ace-step-ui
 ./start.sh
 ```
@@ -229,7 +229,7 @@ REM 1. Start ACE-Step Gradio with API (in ACE-Step-1.5 directory)
 cd C:\path\to\ACE-Step-1.5
 uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 
-REM 2. Start ACE-Step UI (in another terminal)
+REM 2. Start Core.fm (in another terminal)
 cd ace-step-ui
 start.bat
 ```
@@ -259,7 +259,7 @@ Open **http://localhost:3000** and start creating!
 #### Standard Installation (All Platforms)
 
 ```bash
-# Clone ACE-Step 1.5 - the open source Suno alternative
+# Clone the ACE-Step 1.5 engine
 git clone https://github.com/ace-step/ACE-Step-1.5
 cd ACE-Step-1.5
 
@@ -271,7 +271,7 @@ uv pip install -e .
 cd ..
 ```
 
-### 2. Install ACE-Step UI (This Repository)
+### 2. Install Core.fm (This Repository)
 
 #### Linux / macOS
 ```bash
@@ -337,7 +337,7 @@ uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
 
 Wait for "API endpoints enabled" before proceeding.
 
-### Step 2: Start ACE-Step UI
+### Step 2: Start Core.fm
 
 **Linux / macOS:**
 ```bash
@@ -447,7 +447,7 @@ Full control over every parameter:
 
 ## 🤝 Contributing
 
-**We need your help to make ACE-Step UI even better!**
+**We need your help to make Core.fm even better!**
 
 This is a community-driven project and contributions are what make open source amazing. Whether you're fixing bugs, adding features, improving documentation, or sharing ideas - every contribution counts!
 
@@ -495,7 +495,7 @@ This is a community-driven project and contributions are what make open source a
 
 ## 💼 Need a Website Like This?
 
-If you like the engineering and design behind ACE-Step UI and want something similar built for your business, the same team offers professional web development services.
+If you like the engineering and design behind Core.fm and want something similar built for your business, the same team offers professional web development services.
 
 **We build:**
 - 🌐 Custom websites & web apps — Next.js, Astro, WordPress, React
@@ -510,14 +510,14 @@ If you like the engineering and design behind ACE-Step UI and want something sim
 </p>
 
 <p align="center">
-  <em>From the makers of ACE-Step UI — we ship production-grade web experiences.</em>
+  <em>From the makers of Core.fm — we ship production-grade web experiences.</em>
 </p>
 
 ---
 
 ## 👤 About the Author
 
-ACE-Step UI is built and maintained by **Vali** — open-source developer and founder of [Web Design Studio London](https://webdesignstudio.london), a specialist web design and development studio serving London businesses and international clients.
+Core.fm is built and maintained by **Vali** — open-source developer and founder of [Web Design Studio London](https://webdesignstudio.london), a specialist web design and development studio serving London businesses and international clients.
 
 Web Design Studio London builds high-performance Next.js websites, ecommerce platforms, and AI-integrated web applications — the same technical approach that powers this project.
 
@@ -541,7 +541,7 @@ This project is open source under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <strong>⭐ If ACE-Step UI helps you create amazing music, please star this repo! ⭐</strong>
+  <strong>⭐ If Core.fm helps you create amazing music, please star this repo! ⭐</strong>
 </p>
 
 <p align="center">
@@ -549,5 +549,5 @@ This project is open source under the [MIT License](LICENSE).
 </p>
 
 <p align="center">
-  <strong>Stop paying for Suno. Start creating with ACE-Step.</strong>
+  <strong>Make music that fits a market. Run all of it locally.</strong>
 </p>

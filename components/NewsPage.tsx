@@ -68,7 +68,7 @@ export const NewsPage: React.FC = () => {
         group rounded-2xl border transition-all duration-200
         ${isDismissed
           ? 'bg-zinc-100 dark:bg-white/[0.02] border-zinc-200 dark:border-white/5 opacity-50'
-          : 'bg-white dark:bg-suno-card border-zinc-200 dark:border-white/5 hover:border-zinc-300 dark:hover:border-white/10'
+          : 'bg-white dark:bg-corefm-card border-zinc-200 dark:border-white/5 hover:border-zinc-300 dark:hover:border-white/10'
         }
       `}
     >
@@ -138,7 +138,7 @@ export const NewsPage: React.FC = () => {
           href="https://github.com/fspecii/ace-step-ui"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-3 mb-8 px-5 py-4 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card hover:border-zinc-300 dark:hover:border-white/10 transition-all group"
+          className="flex items-center gap-3 mb-8 px-5 py-4 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card hover:border-zinc-300 dark:hover:border-white/10 transition-all group"
         >
           <Github size={20} className="text-zinc-500 dark:text-zinc-400 flex-shrink-0" />
           <div className="flex-1 min-w-0">

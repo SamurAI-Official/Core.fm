@@ -1310,7 +1310,7 @@ function AppContent() {
             {/* Create Panel */}
             <div className={`
               ${mobileShowList ? 'hidden md:block' : 'w-full'}
-              md:w-[320px] lg:w-[360px] flex-shrink-0 h-full border-r border-zinc-200 dark:border-white/5 bg-zinc-50 dark:bg-suno-panel relative z-10 transition-colors duration-300
+              md:w-[320px] lg:w-[360px] flex-shrink-0 h-full border-r border-zinc-200 dark:border-white/5 bg-zinc-50 dark:bg-corefm-panel relative z-10 transition-colors duration-300
             `}>
               <CreatePanel
                 onGenerate={handleGenerate}
@@ -1325,7 +1325,7 @@ function AppContent() {
             {/* Song List */}
             <div className={`
               ${!mobileShowList ? 'hidden md:flex' : 'flex'}
-              flex-1 flex-col h-full overflow-hidden bg-white dark:bg-suno-DEFAULT transition-colors duration-300
+              flex-1 flex-col h-full overflow-hidden bg-white dark:bg-corefm-DEFAULT transition-colors duration-300
             `}>
               <SongList
                 songs={songs}
@@ -1357,7 +1357,7 @@ function AppContent() {
 
             {/* Right Sidebar */}
             {showRightSidebar && (
-              <div className="hidden xl:block w-[360px] flex-shrink-0 h-full bg-zinc-50 dark:bg-suno-panel relative z-10 border-l border-zinc-200 dark:border-white/5 transition-colors duration-300">
+              <div className="hidden xl:block w-[360px] flex-shrink-0 h-full bg-zinc-50 dark:bg-corefm-panel relative z-10 border-l border-zinc-200 dark:border-white/5 transition-colors duration-300">
                 <RightSidebar
                   song={selectedSong}
                   onClose={() => setShowRightSidebar(false)}
@@ -1392,7 +1392,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-suno-DEFAULT text-zinc-900 dark:text-white font-sans antialiased selection:bg-pink-500/30 transition-colors duration-300">
+    <div className="flex flex-col h-screen bg-white dark:bg-corefm-DEFAULT text-zinc-900 dark:text-white font-sans antialiased selection:bg-pink-500/30 transition-colors duration-300">
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           currentView={currentView}
@@ -1498,7 +1498,7 @@ function AppContent() {
             className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in"
             onClick={() => setShowMobileDetails(false)}
           />
-          <div className="relative w-full max-w-md h-full bg-zinc-50 dark:bg-suno-panel shadow-2xl animate-in slide-in-from-right duration-300 border-l border-white/10">
+          <div className="relative w-full max-w-md h-full bg-zinc-50 dark:bg-corefm-panel shadow-2xl animate-in slide-in-from-right duration-300 border-l border-white/10">
             <RightSidebar
               song={selectedSong}
               onClose={() => setShowMobileDetails(false)}

@@ -1,12 +1,12 @@
 #!/bin/bash
-# ACE-Step UI Stop All Services Script
+# Core.fm Stop All Services Script
 
-echo "Stopping all ACE-Step services..."
+echo "Stopping all Core.fm services..."
 
 if [ -f logs/api.pid ]; then
     API_PID=$(cat logs/api.pid)
     if kill -0 $API_PID 2>/dev/null; then
-        echo "Stopping API server (PID: $API_PID)..."
+        echo "Stopping ACE-Step 1.5 engine API (PID: $API_PID)..."
         kill $API_PID
     fi
     rm logs/api.pid
@@ -28,6 +28,15 @@ if [ -f logs/frontend.pid ]; then
         kill $FRONTEND_PID
     fi
     rm logs/frontend.pid
+fi
+
+if [ -f logs/aggregator.pid ]; then
+    AGGREGATOR_PID=$(cat logs/aggregator.pid)
+    if kill -0 $AGGREGATOR_PID 2>/dev/null; then
+        echo "Stopping Trends service (PID: $AGGREGATOR_PID)..."
+        kill $AGGREGATOR_PID
+    fi
+    rm logs/aggregator.pid
 fi
 
 echo "All services stopped!"

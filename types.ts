@@ -151,5 +151,5 @@ export interface UserProfile {
   };
 }
 
-// Simplified views for ACE-Step UI
+// Simplified views for Core.fm
 export type View = 'create' | 'library' | 'training' | 'profile' | 'song' | 'playlist' | 'search' | 'news' | 'trends';

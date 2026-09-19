@@ -1,5 +1,5 @@
 {
-  "name": "Suno Clone UI",
-  "description": "A high-fidelity recreation of the Suno AI music generation interface using React, Tailwind CSS, and Gemini for lyric generation.",
+  "name": "Core.fm",
+  "description": "Core.fm is a local-first AI music studio. It aggregates music trends across countries, designs songs to fit a specific market, renders them with the ACE-Step 1.5 engine, and scores the results against that market.",
   "requestFramePermissions": []
 }

@@ -406,7 +406,7 @@ return (
           </div>
         )}
 {/* Trigger panel: the user drives the loop from here */}
-        <section className="mb-6 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card p-4">
+        <section className="mb-6 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card p-4">
           <div className="flex items-center gap-2 mb-3">
             <Wand2 size={16} className="text-pink-500" />
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">Run the loop</h2>
@@ -525,7 +525,7 @@ return (
                 <button
                   key={market.market}
                   onClick={() => setSelected(isSelected ? null : market.market)}
-                  className={`text-left rounded-2xl border p-4 transition-colors bg-white dark:bg-suno-card ${
+                  className={`text-left rounded-2xl border p-4 transition-colors bg-white dark:bg-corefm-card ${
                     isSelected
                       ? 'border-pink-500/50'
                       : 'border-zinc-200 dark:border-white/5 hover:border-pink-500/30'
@@ -591,7 +591,7 @@ return (
         </section>
 {/* Selected market detail: brief, learned weights, designs, runs */}
         {selected && detail && (
-          <section className="mb-6 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card p-4">
+          <section className="mb-6 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">
@@ -665,7 +665,7 @@ return (
                 return (
                   <div
                     key={concept.id}
-                    className="rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card p-4"
+                    className="rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -896,7 +896,7 @@ return (
             {runs.map((run) => (
               <div
                 key={run.id}
-                className="rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card p-4"
+                className="rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-corefm-card p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">

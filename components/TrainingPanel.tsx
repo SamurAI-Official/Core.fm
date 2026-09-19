@@ -637,7 +637,7 @@ export const TrainingPanel: React.FC = () => {
   ];
 
   return (
-    <div className="h-full w-full flex flex-col bg-zinc-50 dark:bg-suno-panel overflow-hidden">
+    <div className="h-full w-full flex flex-col bg-zinc-50 dark:bg-corefm-panel overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-4 pb-2 flex-shrink-0">
         <h2 className="text-lg font-bold text-zinc-900 dark:text-white">{t('loraTraining')}</h2>

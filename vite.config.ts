@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: {
+        // The Trends service is vendored into this repo under signal-aggregator/.
+        // Its node_modules and its runtime data (SQLite db plus rendered audio)
+        // change constantly, and watching them caused needless HMR churn and
+        // full-page reloads while music was rendering. It has its own tsconfig and
+        // is typechecked from its own directory.
+        ignored: ['**/signal-aggregator/**'],
+      },
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:3001',
