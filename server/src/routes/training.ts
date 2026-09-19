@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
-import { getGradioClient } from '../services/gradio-client.js';
+import { getGradioClient, hasGradioEndpoint } from '../services/gradio-client.js';
 import { config } from '../config/index.js';
 import { resolvePythonPath } from '../services/acestep.js';
 import multer from 'multer';
@@ -448,7 +448,17 @@ router.post('/auto-label', authMiddleware, async (req: AuthenticatedRequest, res
     } = req.body;
 
     // auto_label_all is a lambda-wrapped handler in Gradio, so it may not be accessible
-    // by name. We try the likely endpoint name; if it fails, return a helpful message.
+    // by name. Probe the endpoint list before calling: a missing name makes
+    // @gradio/client leak an unhandled rejection that no try/catch here can contain,
+    // which previously terminated the entire server process.
+    if (!(await hasGradioEndpoint('/auto_label_all'))) {
+      res.status(501).json({
+        error: 'Auto-labeling requires the Gradio UI. The model must be initialized and the dataset loaded in the Gradio training tab.',
+        hint: 'Use the Gradio UI at the ACE-Step server URL to auto-label your dataset, then reload it here.',
+      });
+      return;
+    }
+
     const client = await getGradioClient();
     try {
       const result = await client.predict('/auto_label_all', [

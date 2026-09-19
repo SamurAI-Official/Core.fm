@@ -13,6 +13,32 @@ import cron from 'node-cron';
 import { config } from './config/index.js';
 import { runCleanupJob, cleanupDeletedSongs } from './services/cleanup.js';
 
+/**
+ * Last-resort safety net.
+ *
+ * `@gradio/client` creates its own promise inside `Client.predict` and rejects that
+ * chain instead of returning it, so when an endpoint name does not exist on the
+ * running Gradio app the rejection escapes every surrounding try/catch. Node's
+ * default is to terminate the process - which killed this backend and made the UI
+ * show 500s for completely unrelated requests, because a single click on
+ * "auto-label" took down generation for everyone.
+ *
+ * A local server must not die because one route reached a missing endpoint. These
+ * handlers log loudly and keep serving; the offending route still returns a real HTTP
+ * error, and `hasGradioEndpoint()` prevents the known-bad call in the first place.
+ *
+ * Trade-off, stated honestly: continuing after an `uncaughtException` can leave the
+ * process in an inconsistent state. That is the lesser evil here - silently dying is
+ * what caused this incident, and every request already fails with 500 if we exit.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL-GUARD] Unhandled promise rejection (server kept running):', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL-GUARD] Uncaught exception (server kept running):', error);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
