@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# Runtime data: SQLite database, downloaded renders, manifests
+data/
+
+# Build output
+dist/
+
+# Logs / scratch
+*.log
+_*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
