@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, User, Sparkles } from 'lucide-react';
+import { X, User } from 'lucide-react';
+import { BrandMark } from './BrandMark';
 import { useI18n } from '../context/I18nContext';
 
 interface UsernameModalProps {
@@ -51,11 +52,12 @@ export const UsernameModal: React.FC<UsernameModalProps> = ({ isOpen, onSubmit }
         <div className="h-2 bg-gradient-to-r from-pink-500 via-purple-500 to-blue-500" />
 
         <div className="p-8">
-          {/* Logo */}
+          {/* Logo — same BrandMark as the sidebar, so the login screen and the app
+              shell can't show two different marks. The pink/purple gradient header
+              and submit button below are untouched: the accent colour is still an
+              open decision, so changing them now would pre-empt it. */}
           <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center shadow-lg">
-              <Sparkles className="w-8 h-8 text-white" />
-            </div>
+            <BrandMark className="w-16 h-16 text-white" />
           </div>
 
           {/* Title */}

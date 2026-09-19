@@ -1,0 +1,53 @@
+<!--
+  Core.fm brand mark (standalone).
+
+  The canonical mark lives in components/BrandMark.tsx for anything React renders;
+  this file is the browser/OS-facing copy, used as the favicon and reusable for
+  README/OG images. If the artwork changes, update BOTH files.
+
+  Colours are self-carried (a favicon has no `currentColor` to inherit) and flip
+  to light-on-dark via prefers-color-scheme so the mark stays visible in both
+  light and dark browser chrome. Note that index.html referenced /favicon.svg for
+  a long time while the file did not exist, so that request was a 404 until this
+  asset was added.
+-->
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Core.fm">
+  <style>
+    .mark { fill: #09090b; }
+    .ring { stroke: #09090b; }
+    @media (prefers-color-scheme: dark) {
+      .mark { fill: #fafafa; }
+      .ring { stroke: #fafafa; }
+    }
+  </style>
+  <defs>
+    <!-- Literal black/white only: mask internals must never be themed. -->
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff" />
+      <g fill="#000" stroke="#000" stroke-width="26" stroke-linejoin="round">
+        <path d="M244 236 C230 214 222 192 226 172 C240 192 254 212 266 230 Z" />
+        <path d="M214 278 C214 222 298 222 298 278 Z" />
+        <path d="M178 386 L178 332 C178 306 200 290 228 286 L228 276 L286 276 L286 286 C314 290 336 306 336 332 L336 386 Z" />
+        <rect x="292" y="208" width="13" height="182" transform="rotate(30 256 300)" />
+      </g>
+    </mask>
+  </defs>
+
+  <circle class="ring" cx="256" cy="256" r="230" fill="none" stroke-width="26" />
+
+  <g class="mark" mask="url(#cut)">
+    <path d="M196 56 L316 56 L292 168 Q256 150 220 168 Z" />
+    <path d="M196 56 L316 56 L292 168 Q256 150 220 168 Z" transform="rotate(72 256 256)" />
+    <path d="M196 56 L316 56 L292 168 Q256 150 220 168 Z" transform="rotate(144 256 256)" />
+    <path d="M196 56 L316 56 L292 168 Q256 150 220 168 Z" transform="rotate(216 256 256)" />
+    <path d="M196 56 L316 56 L292 168 Q256 150 220 168 Z" transform="rotate(288 256 256)" />
+  </g>
+
+  <g class="mark">
+    <path d="M244 236 C230 214 222 192 226 172 C240 192 254 212 266 230 Z" />
+    <path d="M214 278 C214 222 298 222 298 278 Z" />
+    <path d="M178 386 L178 332 C178 306 200 290 228 286 L228 276 L286 276 L286 286 C314 290 336 306 336 332 L336 386 Z" />
+    <rect x="292" y="208" width="13" height="182" rx="6" transform="rotate(30 256 300)" />
+    <rect x="286" y="352" width="25" height="64" rx="4" transform="rotate(30 256 300)" />
+  </g>
+</svg>
