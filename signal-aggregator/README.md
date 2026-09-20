@@ -352,11 +352,45 @@ the pipeline or a database:
   run rotates through them, forcing a different subject changes the lyrics, a chart word
   in the pack's own script is usable as an ad-lib and a Latin one is rejected for it, and
   chart words actually drive the subject (`scripts/subject-spread.ts`);
-- `npm run test:agents` — per writing style and per pack: the shared bars *plus* the
-  engine's own claims asserted against the output (a refrain repeated and byte-identical
-  across its restatements, questions drawn from the pack's bank without repeats and
-  lengthening across the song, rotation never handing a pack a style it cannot write, a
-  forced style degrading and saying so), and a variety check across seeds
+- `npm run test:agents` — per writing style and per pack: the shared bars *plus* an engine
+  assertion block for **every one of the 21 registered styles**, checked against the lyrics rather
+  than against the style's own name. A registered style with no assertion block **fails** the gate,
+  so a style cannot survive here as a label:
+  - `refrain-mutation` — the refrain is sung three or more times and the repeated chorus is
+    byte-identical
+  - `question-answer` — questions come from the pack's bank without repeats and lengthen across
+    the song
+  - `one-line-premise` — the premise is sung twice or more and the song closes on it
+  - `circular` — the closing section opens on the line the song opened with
+  - `escalating-stakes` — four or more rungs sung, in the bank's own order
+  - `countdown` — the deadline arrives within the first two sections, the obstacles stay in bank
+    order (the clock cannot run backwards) and a decision closes the song
+  - `specific-universal` — the universal line comes from the pack's bank and never leads the song
+  - `image-meaning` — at least three distinct images, and the meaning arrives after them
+  - `thought-actually` / `everybody-says` — the belief is stated before the evidence that tests it,
+    and the revision comes after both
+  - `call-response` — the calls are distinct within a song, the answer returns untouched three or
+    more times, and the escalation is a different line, sung
+  - `character-choice` — desire, dilemma, choice and consequence are all reported *and* all sung
+  - `missing-character` — the cause is never explained: no sung line may come from the pack's
+    `claim` or `universal` banks, even though the style may run on packs that have them
+  - `slogan-story` — the slogan returns three or more times, is stated in three or more sections,
+    and the bridge turns it against itself
+  - `object-symbol` — the object appears three or more times, each with different lines around it
+    (otherwise it is an object, not a symbol)
+  - `groove-return` — the pattern returns four or more times, the break is a single line, and the
+    last chorus is byte-identical to the first
+  - `hook-variation-payoff` — the hook is sung four or more times and the reinterpretation is one of
+    the pack's own `implication` lines, actually sung
+  - `false-resolution` — the destabilising detail arrives *after* the resolution it undoes
+  - `promise-violation` — the promise is broken after it is made
+  - `confession-denial` — all three stages are sung and none is a restatement of another
+  - `arc` — the arc report survives, repetition is still a fault, and the song is five or more
+    sections long
+
+  A style forced onto a pack that lacks its primitives is held to the quality bars only, and the
+  number of skipped engine checks is **printed** rather than hidden. Rotation is checked never to
+  hand a pack a style it cannot write, and a variety check runs across seeds
   (`scripts/agent-spread.ts`; `--print` adds a sample song per style).
 
 ### Two limits, stated plainly
