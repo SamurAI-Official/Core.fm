@@ -119,6 +119,20 @@ export interface TrendLanguage {
   reviewStatus: 'unreviewed' | 'native-reviewed';
 }
 
+/** A writing style (how a song is built), as reported by the agent registry. */
+export interface TrendAgent {
+  id: string;
+  name: string;
+  /** The engine chain, e.g. ['question', 'partial answer', 'consequence', 'new question']. */
+  engine: string[];
+  blurb: string;
+  /** Primitives the style needs from a language pack. */
+  needs: Array<{ id: string; label: string }>;
+  repetition: 'fault' | 'device';
+  /** Language codes whose packs can really write this style today. */
+  packs: string[];
+}
+
 async function request<T>(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(`${BASE}${endpoint}`, {
     method: options.method ?? 'GET',
@@ -170,6 +184,29 @@ export const trendsApi = {
    * the list and the capability are the same list.
    */
   languages: (): Promise<{ languages: TrendLanguage[]; pending: string[] }> => request('/api/languages'),
+
+  /**
+   * Writing styles. Served from the agent registry for the same reason as languages: the
+   * dropdown and the writer must not be able to disagree about which styles exist, and
+   * `packs` says which languages can really write each one today.
+   */
+  agents: (): Promise<{ agents: TrendAgent[]; defaultAgent: string }> => request('/api/agents'),
+
+  /**
+   * Rewrites one design's lyrics, optionally with a chosen writing style.
+   *
+   * Design-time selection alone would leave most styles unreachable, so this is how a style
+   * is tried against a market and subject without a full design run or a render.
+   */
+  rerollLyrics: (
+    id: string,
+    body: { agent?: string; seed?: number } = {},
+  ): Promise<{
+    concept: TrendConcept;
+    style: { id: string; name: string; source: string; realised: boolean };
+    subject: { id: string; label: string; source: string };
+    validation: { score: number; meterFit: number; issues: string[] };
+  }> => request(`/api/concepts/${id}/reroll-lyrics`, { method: 'POST', body }),
 
   marketDetail: (
     cc: string,

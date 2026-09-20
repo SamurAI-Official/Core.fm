@@ -16,6 +16,7 @@ import {
   trendsApi,
   type ConceptPatch,
   type MarketTrend,
+  type TrendAgent,
   type TrendConcept,
   type TrendLanguage,
   type TrendRun,
@@ -127,6 +128,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ showToast }) => {
   // that still have no pack (offered, but labelled as an English fallback).
   const [languagePacks, setLanguagePacks] = useState<TrendLanguage[]>([]);
   const [pendingLanguages, setPendingLanguages] = useState<string[]>([]);
+  // Writing styles, from the agent registry, plus which style each design should be
+  // rewritten with (defaults to whatever built it).
+  const [agents, setAgents] = useState<TrendAgent[]>([]);
+  const [styleChoice, setStyleChoice] = useState<Record<string, string>>({});
+  const [rewriting, setRewriting] = useState<string | null>(null);
 
   // Trigger controls
   const [targetMarkets, setTargetMarkets] = useState<string[]>([]);
@@ -146,12 +152,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ showToast }) => {
 
   const loadOverview = useCallback(async () => {
     try {
-      const [{ markets: rows }, health, languageOptions] = await Promise.all([
+      const [{ markets: rows }, health, languageOptions, styleOptions] = await Promise.all([
         trendsApi.overview(),
         trendsApi.health(),
         // An older aggregator may predate /api/languages; the built-in list covers that
         // case instead of failing the whole overview.
         trendsApi.languages().catch(() => null),
+        trendsApi.agents().catch(() => null),
       ]);
       setMarkets(rows);
       setPipeline(health.pipeline);
@@ -159,6 +166,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ showToast }) => {
         setLanguagePacks(languageOptions.languages);
         setPendingLanguages(languageOptions.pending);
       }
+      if (styleOptions) setAgents(styleOptions.agents);
       setError(null);
       setTargetMarkets((current) => (current.length > 0 ? current : rows.map((row) => row.market)));
       return true;
@@ -380,6 +388,32 @@ const handleSaveConcept = async (conceptId: string) => {
     setTargetMarkets((current) =>
       current.includes(cc) ? current.filter((item) => item !== cc) : [...current, cc],
     );
+  };
+
+  /**
+   * Rewrites one design's lyrics with the selected writing style.
+   *
+   * Design-time selection alone would leave most styles unreachable, so this is the way a
+   * style is tried against a market and a subject without a full design run or a render.
+   */
+  const handleReroll = async (concept: TrendConcept) => {
+    setRewriting(concept.id);
+    try {
+      const chosen = styleChoice[concept.id];
+      const result = await trendsApi.rerollLyrics(concept.id, chosen ? { agent: chosen } : {});
+      notify(
+        `${result.style.name}: singability ${result.validation.score}` +
+          (result.style.realised
+            ? ''
+            : " - this pack lacks the style's primitives, so it degraded rather than failed"),
+        result.style.realised ? 'success' : 'info',
+      );
+      if (selected) await loadMarket(selected);
+    } catch (rerollError) {
+      notify((rerollError as Error).message, 'error');
+    } finally {
+      setRewriting(null);
+    }
   };
 
   const showReport = async (cc: string) => {
@@ -854,6 +888,81 @@ return (
                             >
                               {busy === 'run' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
                               Save &amp; render
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Writing style: how the song was built, and how to rebuild it a
+                            different way without a full design run or a render. */}
+                        <div className="rounded-xl bg-zinc-100 dark:bg-white/5 p-3 space-y-2">
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            Writing style (how the song is built)
+                          </p>
+                          <p className="text-xs text-zinc-900 dark:text-white">
+                            {typeof concept.params?.lyricAgentName === 'string'
+                              ? String(concept.params.lyricAgentName)
+                              : 'unknown (designed before writing styles existed)'}
+                            {typeof concept.params?.lyricAgentSource === 'string'
+                              ? ` - chosen by ${String(concept.params.lyricAgentSource)}`
+                              : ''}
+                            {concept.params?.lyricAgentRealised === false
+                              ? " - this pack lacks the style's primitives"
+                              : ''}
+                          </p>
+                          {Array.isArray(concept.params?.lyricAgentEngine) && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {(concept.params.lyricAgentEngine as string[]).map((step, index) => (
+                                <React.Fragment key={step}>
+                                  {index > 0 && <span className="text-[11px] text-zinc-400">-&gt;</span>}
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                                    {step}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          )}
+                          {typeof concept.params?.lyricAgentSummary === 'string' && (
+                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                              {String(concept.params.lyricAgentSummary)}
+                            </p>
+                          )}
+                          {Array.isArray(concept.params?.lyricStructure) && (
+                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                              {(concept.params.lyricStructure as Array<{ section: string; roles: string[] }>)
+                                .map((entry) => `${entry.section}: ${entry.roles.join(' + ')}`)
+                                .join('  |  ')}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={styleChoice[concept.id] ?? String(concept.params?.lyricAgent ?? '')}
+                              onChange={(event) =>
+                                setStyleChoice((current) => ({ ...current, [concept.id]: event.target.value }))
+                              }
+                              className="px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
+                            >
+                              {agents.length === 0 && <option value="">(aggregator offline)</option>}
+                              {agents.map((agent) => (
+                                <option key={agent.id} value={agent.id}>
+                                  {agent.name}
+                                  {agent.packs.includes(String(draft.vocalLanguage ?? 'en'))
+                                    ? ''
+                                    : ' - no pack yet for this language'}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => void handleReroll(concept)}
+                              disabled={busy !== null || rewriting === concept.id || agents.length === 0}
+                              className="px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 disabled:opacity-50 text-[11px] text-zinc-700 dark:text-zinc-200 flex items-center gap-1.5"
+                              title="Rewrite the lyrics with this style, keeping the market, genre, language and tempo"
+                            >
+                              {rewriting === concept.id ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Wand2 size={12} />
+                              )}
+                              Rewrite lyrics
                             </button>
                           </div>
                         </div>
