@@ -16,6 +16,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -26,6 +27,7 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
 
 /**
  * Subject material.
@@ -53,6 +55,75 @@ const SUBJECT_MATERIAL: SubjectTable = {
     selves: ['du côté du silence', 'à la même place', 'encore là'],
     banks: { conclusion: ["Rien ne s'est effacé", "Quelqu'un a laissé la lumière"] },
   },
+};
+
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines, not fragments: an agent decides the order, so a question has to read as a
+ * question and a confession has to stand alone wherever they land. Elision and gender are already
+ * resolved inside each entry ("j'ai", "je ne suis jamais parti"), because no template surrounds it.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    'Pourquoi tu es parti',
+    'Où tu vas quand tu pars',
+    'Qui va me sauver maintenant',
+    "Qu'est-ce que je fais du reste",
+    'Combien de temps je garde la lumière',
+    "Quand on a cessé d'être nous",
+  ],
+  answer: [
+    'Parce que je ne pouvais pas rester',
+    'Personne, et personne est venu',
+    "Je ne sais pas, et c'est la vérité",
+    "Ce n'était jamais à propos de moi",
+    "Parce que quelqu'un devait le faire",
+    "J'étais déjà à moitié parti",
+  ],
+  claim: [
+    "J'ai dit que je n'appellerais pas",
+    'Je me suis dit que ça allait',
+    'On dit que le temps répare',
+    "J'avais promis de rester loin",
+    "Je répète que c'est fini",
+  ],
+  reversal: [
+    "Et j'ai composé ton numéro",
+    'Mais je regarde encore la porte',
+    "Alors pourquoi je m'en souviens",
+    "J'étais déjà à mi-chemin",
+    'En fait je ne suis jamais parti',
+  ],
+  implication: [
+    "Ça veut dire qu'on a cessé d'attendre",
+    'Voilà à quoi ressemble partir',
+    "C'était ça, le silence",
+    "Cette lumière n'était pas pour moi",
+    'Ça se termine comme ça',
+  ],
+  universal: [
+    'Tout le monde laisse quelque chose',
+    "Personne ne garde l'année",
+    "On l'apprend tous pareil",
+    'Certaines choses finissent après coup',
+    'On ne peut pas tenir et partir',
+  ],
+  ladder: [
+    "J'ai encore perdu les clés",
+    "J'ai raté le dernier train",
+    "J'ai raté l'entretien",
+    "J'ai perdu le boulot en mars",
+    'Je ne peux pas payer le loyer',
+  ],
+  deadline: [
+    "Trois jours avant la fin de l'argent",
+    'Une nuit avant le départ du train',
+    "Dix euros jusqu'à la fin du mois",
+    'Deux heures avant la fermeture',
+    "Une semaine avant l'audience",
+  ],
+  fragment: ['Juste la pluie', "Rien d'autre", 'Seulement le silence', 'Toujours rien', 'Personne ne répond'],
 };
 
 /** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
@@ -197,6 +268,7 @@ export const frenchPack: LanguagePack = {
   script: 'latin',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
 
@@ -210,7 +282,7 @@ export const frenchPack: LanguagePack = {
   // Chart terms are English/Latin tokens, so this pack uses the hook instead of
   // injecting a foreign word into the intro ad-lib.
   introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  reframe: boundedReframe('latin'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 

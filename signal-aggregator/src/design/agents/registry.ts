@@ -13,11 +13,55 @@ import { availableLanguages, resolvePack } from '../lyrics/index.js';
 import { coversPrimitives, PRIMITIVE_LABELS, type PrimitiveId } from '../lyrics/primitives.js';
 import type { LanguagePack } from '../lyrics/types.js';
 import { arcAgent } from './arc.js';
+import { callResponseAgent } from './call-response.js';
+import { characterChoiceAgent } from './character-choice.js';
+import { circularAgent } from './circular.js';
+import { confessionDenialAgent } from './confession-denial.js';
+import { countdownAgent } from './countdown.js';
+import { escalatingStakesAgent } from './escalating-stakes.js';
+import { everybodySaysAgent } from './everybody-says.js';
+import { falseResolutionAgent } from './false-resolution.js';
+import { grooveReturnAgent } from './groove-return.js';
+import { hookVariationPayoffAgent } from './hook-variation-payoff.js';
+import { imageMeaningAgent } from './image-meaning.js';
+import { missingCharacterAgent } from './missing-character.js';
+import { objectSymbolAgent } from './object-symbol.js';
+import { oneLinePremiseAgent } from './one-line-premise.js';
+import { promiseViolationAgent } from './promise-violation.js';
 import { questionAnswerAgent } from './question-answer.js';
 import { refrainMutationAgent } from './refrain-mutation.js';
+import { sloganStoryAgent } from './slogan-story.js';
+import { specificUniversalAgent } from './specific-universal.js';
+import { thoughtActuallyAgent } from './thought-actually.js';
 import type { AgentSource, WritingAgent } from './types.js';
 
-export const AGENTS: WritingAgent[] = [arcAgent, refrainMutationAgent, questionAnswerAgent];
+/**
+ * Every writing style, in the order the design brief lists them (the arc first, because it is the
+ * default and the one every pre-existing concept was written with).
+ */
+export const AGENTS: WritingAgent[] = [
+  arcAgent,
+  hookVariationPayoffAgent,
+  questionAnswerAgent,
+  specificUniversalAgent,
+  promiseViolationAgent,
+  confessionDenialAgent,
+  imageMeaningAgent,
+  characterChoiceAgent,
+  escalatingStakesAgent,
+  falseResolutionAgent,
+  callResponseAgent,
+  sloganStoryAgent,
+  countdownAgent,
+  thoughtActuallyAgent,
+  objectSymbolAgent,
+  everybodySaysAgent,
+  grooveReturnAgent,
+  oneLinePremiseAgent,
+  circularAgent,
+  missingCharacterAgent,
+  refrainMutationAgent,
+];
 
 /** The arc stays the default: no existing concept changes structure. */
 export const DEFAULT_AGENT = arcAgent.id;

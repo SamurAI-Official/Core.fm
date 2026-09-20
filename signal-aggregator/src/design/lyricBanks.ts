@@ -94,18 +94,23 @@ export const HOOK_SUBJECTS = ['We', 'You and I', 'The two of us', 'All of us', '
 /**
  * Hook verb phrases: plural- and first-person-safe, and written to read as a
  * mantra rather than an instruction (the agency stage has its own bank).
+ *
+ * Length matters here in a way it does not for the other banks: several writing styles repeat
+ * the hook four or five times, so a three- or four-syllable hook drags a whole song's meter
+ * score down under the comfortable band. These sit at six to seven syllables, which is mid-band
+ * at ordinary tempos and still short enough to be a hook.
  */
 export const HOOK_VERBS = [
-  'keep the light on',
-  'say it first',
-  'hold the line',
-  'take the long way',
-  'count it twice',
-  'turn it up',
-  'wait it out',
-  'leave the porch light on',
-  'let the record show',
-  'call it ours',
+  'keep the porch light on',
+  'say it first for once',
+  'hold the line all night',
+  'take the long way home',
+  'count it twice at midnight',
+  'turn it up until it hurts',
+  'wait it out until morning',
+  'leave the porch light burning',
+  'let the record show it all',
+  'call it ours and mean it',
 ];
 
 /** Completes "So I ${...}": the turn to agency. */

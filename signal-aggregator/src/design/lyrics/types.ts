@@ -15,6 +15,7 @@
  */
 import type { LyricStage } from '../arc.js';
 import type { PrimitiveId } from './primitives.js';
+import { estimateSyllables } from './validate.js';
 
 /** Everything a stage needs in order to render its lines. */
 export interface LyricContext {
@@ -155,6 +156,32 @@ export function sentenceCase(input: string): string {
 /** Trims a generated line list to the section's line budget. */
 export function takeLines(lines: string[], count: number): string[] {
   return lines.slice(0, Math.max(1, Math.min(count, lines.length)));
+}
+
+/**
+ * Reframing with a length ceiling.
+ *
+ * "`hook, qualifier`" is the reframe every pack wants, but the result has to be *singable*: the
+ * comfortable band tops out around twelve syllables at 110-120 BPM, and a hook plus a qualifier
+ * runs past that in the longer-syllable languages. When it does, the qualifier carries the reframe
+ * on its own - it still turns the hook against itself.
+ *
+ * It must not fall back to the hook: a "reframed" conclusion that is word-for-word the hook is not
+ * a reframe, and the first version of this did exactly that, which the gate caught as a repeated
+ * line in every style that puts the hook and the closing line in one section.
+ *
+ * This lives here rather than in each pack because the rule is the same everywhere; what differs
+ * per language is the script it is measured in.
+ */
+export function boundedReframe(
+  script: ScriptFamily,
+  maxSyllables = 12,
+  joiner = ', ',
+): (hook: string, qualifier: string) => string {
+  return (hook, qualifier) => {
+    const combined = `${hook}${joiner}${qualifier}`;
+    return estimateSyllables(combined, script) <= maxSyllables ? combined : qualifier;
+  };
 }
 
 /**

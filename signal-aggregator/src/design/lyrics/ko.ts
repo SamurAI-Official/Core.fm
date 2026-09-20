@@ -23,6 +23,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -143,12 +144,12 @@ const METAPHOR_LINES = ['여기서 제일 큰 소리야', '아무도 가져가�
 
 const QUALIFIERS = ['아니면 아닐지도 몰라', '지금은 그냥', '그런 셈 치자', '오늘 밤만'];
 
-/** Noun phrases usable after "아직도" (still the object), in Korean. */
+/** Noun phrases usable as a line of their own (the object stands alone in this pack). */
 const METAPHORS: Record<string, string[]> = {
-  general: ['열린 채인 문', '한 번도 울리지 않은 전화', '떠나간 기차의 표', '맞지 않는 열쇠', '보이지 않는 멍'],
-  urban: ['금이 간 휴대폰 화면', '신발 상자에 든 현금', '블라인드로 들어오는 가로등', '끊어진 목걸이', '듣지 않은 음성 메시지'],
-  roots: ['닫히지 않는 방충망 문', '식어 버린 주유소 커피', '앞유리 먼지 위의 이름', '문 앞에서 기다리는 개', '아무도 베지 않는 밭'],
-  club: ['박자를 맞추는 스트로보', '바닥을 타고 오는 베이스', '꺼지지 않는 화면', '같이 따라 부르는 사람들'],
+  general: ['열린 채인 문', '울리지 않은 전화', '떠나간 기차의 표', '맞지 않는 열쇠', '보이지 않는 멍'],
+  urban: ['금이 간 휴대폰 화면', '신발 상자에 든 현금', '블라인드 틈의 불빛', '끊어진 목걸이', '듣지 않은 음성'],
+  roots: ['닫히지 않는 방충망', '식어 버린 커피', '앞유리 위의 이름', '문 앞의 개', '아무도 베지 않는 밭'],
+  club: ['박자 맞추는 불빛', '바닥을 타고 오는 베이스', '꺼지지 않는 화면', '같이 부르는 사람들'],
   band: ['끊어질 듯한 줄', '켜지지 않는 성냥', '밤새 웅웅대는 앰프', '같은 마디에 걸린 테이프'],
   afro: ['뒤꿈치가 닳은 신발', '새벽에 우는 주전자', '항상 켜지는 발전기', '해가 뜰 때 끝나는 파티'],
   eastasia: ['기차에 두고 내린 우산', '아직 돌아가는 카세트', '손대지 않은 도시락', '불 하나만 켜진 승강장', '쓰다 지운 메시지'],
@@ -258,6 +259,51 @@ const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
     '누군가는 해야 했어',
     '이미 반쯤 떠났어',
   ],
+  // A stated position the song then tests: promise, confession, belief.
+  claim: [
+    '전화하지 않겠다고 했어',
+    '나는 괜찮다고 말했어',
+    '시간이 다 낫게 한다고들 해',
+    '다시는 안 간다고 했어',
+    '이제 끝났다고 말했어',
+  ],
+  reversal: [
+    '그런데도 번호를 눌렀어',
+    '그래도 문을 봐',
+    '그럼 왜 아직 기억해',
+    '이미 반쯤 돌아갔어',
+    '사실 한 번도 떠나지 않았어',
+  ],
+  implication: [
+    '누군가 기다림을 그만뒀어',
+    '이게 떠나는 모습이야',
+    '그 조용함이 그런 거였어',
+    '그 불빛은 내 것이 아니야',
+    '이렇게 끝나는 거야',
+  ],
+  universal: [
+    '누구나 뭔가를 두고 가',
+    '아무도 그해를 갖지 못해',
+    '우리는 다 같은 방식으로 배워',
+    '어떤 건 나중에야 끝난 걸 알아',
+    '붙잡은 채로 떠날 수는 없어',
+  ],
+  // Ordered escalation: the array *is* the escalation; order must not be shuffled.
+  ladder: [
+    '열쇠를 또 잃어버렸어',
+    '막차를 놓쳤어',
+    '면접에 못 갔어',
+    '삼월에 일자리를 잃었어',
+    '월세를 낼 수가 없어',
+  ],
+  deadline: [
+    '돈이 떨어지기까지 사흘',
+    '기차가 떠나기 전 하룻밤',
+    '주말까지 만 원',
+    '문을 닫기까지 두 시간',
+    '재판까지 일주일',
+  ],
+  fragment: ['그냥 비야', '아무것도 없어', '그냥 침묵', '아무도 없어', '그것뿐이야'],
 };
 
 export const koreanPack: LanguagePack = {
@@ -279,7 +325,13 @@ export const koreanPack: LanguagePack = {
 
   // A Hangul chart word can stand as an ad-lib; otherwise the subject's own fragment.
   introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  /**
+   * Reframing is this pack's grammar decision, and so is knowing when the words will not fit:
+   * hook plus qualifier ran to fifteen blocks, past the comfortable band. When the combined
+   * line is too long the qualifier carries the reframe alone - it still turns the hook against
+   * itself, without asking for a line that cannot be sung at tempo.
+   */
+  reframe: boundedReframe('hangul'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 
@@ -289,12 +341,15 @@ export const koreanPack: LanguagePack = {
       const place = fromBank(ctx.rng, PLACES, used);
       const self = fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used);
       const detail = fromBank(ctx.rng, bank(ctx, 'perspective', DETAILS), used);
+      // One idea per line rather than "time + place" glued together: Korean phrases are long
+      // enough that a combined line lands outside the singable band, which the gate caught as
+      // soon as styles began repeating those lines instead of using each one once.
       return takeLines(
         [
-          `지금은 ${time}, ${place}`,
+          `지금은 ${time}`,
+          sentenceCase(place),
           `나는 ${self}`,
           sentenceCase(detail),
-          `${sentenceCase(place)}, ${detail}`,
         ],
         count,
       );
@@ -334,10 +389,9 @@ export const koreanPack: LanguagePack = {
     },
 
     metaphor: (count, ctx) =>
-      takeLines(
-        [`아직도 ${ctx.metaphor}`, sentenceCase(fromBank(ctx.rng, METAPHOR_LINES))],
-        count,
-      ),
+      // The object stands alone: prefixing it ("아직도 ...") pushed the longer bank entries past
+      // the singable band, and a bare noun phrase already reads as a lyric line in Korean.
+      takeLines([ctx.metaphor, sentenceCase(fromBank(ctx.rng, METAPHOR_LINES))], count),
 
     scale: (count, ctx, used) =>
       takeLines(

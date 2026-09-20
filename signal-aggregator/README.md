@@ -171,9 +171,9 @@ npm run test:subjects
 ## How a song is built (writing styles)
 
 The seven-stage arc used to be the *only* structure, so every market, genre and subject was
-told the same way. A **writing agent** is a named way of building a song: twenty are
-specified from the songwriting brief, three are implemented, and styles are added rather
-than swapped in - `arc` remains the default, so no existing concept changes shape.
+told the same way. A **writing agent** is a named way of building a song: all twenty from the
+songwriting brief are implemented, in every language, and `arc` remains the default so no
+existing concept changes shape.
 
 ```ts
 interface WritingAgent {
@@ -187,42 +187,47 @@ interface WritingAgent {
 }
 ```
 
-| Style | Engine | Status |
-|---|---|---|
-| `arc` Narrative arc | perspective → uncertainty → agency → contradiction → concrete metaphor → scale → conclusion | **implemented** (default) |
-| `refrain-mutation` Refrain With Semantic Mutation | same phrase → new context → new meaning → new context → transformed meaning | **implemented** |
-| `question-answer` Question → Answer → Bigger Question | question → partial answer → consequence → new question | **implemented** |
-| `hook-variation-payoff` | claim → repetition → contradiction → reinterpretation → return | planned |
-| `specific-universal` | tiny physical detail → emotional implication → larger human truth | planned |
-| `promise-violation` | expectation → anticipation → violation → recognition | planned |
-| `confession-denial` | reveal → retreat → deeper reveal | planned |
-| `image-meaning` | concrete image → image → pattern → emotional realisation | planned |
-| `character-choice` | person → desire → dilemma → choice → consequence | planned |
-| `escalating-stakes` | small consequence → larger → irreversible | planned |
-| `false-resolution` | conflict → apparent resolution → destabilising detail → new conflict | planned |
-| `call-response` | statement → response → repetition → variation → escalation | planned |
-| `slogan-story` | simple thesis → examples → contradiction → expanded thesis | planned |
-| `countdown` | deadline → progression → decreasing time → decision | planned |
-| `thought-actually` | belief → evidence → contradiction → revised belief | planned |
-| `object-symbol` | object → repetition → association → transformation | planned |
-| `everybody-says` | common belief → personal evidence → contradiction → personal conclusion | planned |
-| `groove-return` | pattern → disruption → anticipation → return | planned |
-| `one-line-premise` | compressed premise → unanswered implication → expansion | planned |
-| `circular` | opening image → journey → revelation → return to the opening image | planned |
-| `missing-character` | evidence → omission → listener inference → realisation | planned |
+| Style | Engine | Needs from the pack | Status |
+|---|---|---|---|
+| `arc` Narrative arc *(default)* | perspective → uncertainty → agency → contradiction → concrete metaphor → scale → conclusion | — | implemented |
+| `hook-variation-payoff` Hook → Variation → Payoff | claim → repetition → contradiction → reinterpretation → return | implication | implemented |
+| `question-answer` Question → Answer → Bigger Question | question → partial answer → consequence → new question | question, answer | implemented |
+| `specific-universal` The Specific → Universal | tiny physical detail → emotional implication → larger human truth | implication, universal | implemented |
+| `promise-violation` Promise → Violation → Repetition | expectation → anticipation → violation → recognition | claim, reversal | implemented |
+| `confession-denial` Confession → Denial → Confession | reveal → retreat → deeper reveal | claim, reversal | implemented |
+| `image-meaning` Image → Image → Image → Meaning | concrete image → image → pattern → emotional realisation | — (prefers `universal`) | implemented |
+| `character-choice` Character → Choice → Consequence | person → desire → dilemma → choice → consequence | claim | implemented |
+| `escalating-stakes` The Escalating Stakes | small consequence → larger → irreversible | ladder | implemented |
+| `false-resolution` The False Resolution | conflict → apparent resolution → destabilising detail → new conflict | reversal | implemented |
+| `call-response` Call → Response → Escalation | statement → response → repetition → variation → escalation | question, answer | implemented |
+| `slogan-story` Slogan → Story | simple thesis → examples → contradiction → expanded thesis | — | implemented |
+| `countdown` The Countdown | deadline → progression → decreasing time → decision | deadline, ladder | implemented |
+| `thought-actually` The "I Thought X / Actually Y" | belief → evidence → contradiction → revised belief | claim, reversal | implemented |
+| `object-symbol` The Object Becomes the Symbol | object → repetition → association → transformation | — | implemented |
+| `everybody-says` The "Everybody Says → I Say" | common belief → personal evidence → contradiction → personal conclusion | claim, reversal, universal | implemented |
+| `groove-return` The Groove → Disruption → Return | pattern → repetition → disruption → return | — (prefers `fragment`) | implemented |
+| `one-line-premise` The One-Line Premise | compressed premise → unanswered implication → expansion | — | implemented |
+| `circular` The Circular Song | opening image → journey → revelation → return to the opening image | — | implemented |
+| `missing-character` The Listener as the Missing Character | evidence → omission → listener inference → realisation | — | implemented |
+| `refrain-mutation` Refrain With Semantic Mutation | same phrase → new context → new meaning → new context → transformed meaning | — | implemented |
 
 **Agents arrange; packs supply the words.** A style asks for *roles* and *primitives*, never
 for words, so Korean and French grammar stay where they are verified.
 
 - **Primitives are whole lines.** `render` banks complete a template the pack owns; a
   primitive (`question`, `answer`, `claim`, `reversal`, `implication`, `universal`, `ladder`,
-  `fragment`) is placed by the agent, so an entry must read correctly standing alone.
-  Coverage is derived from the table - a primitive exists when it has entries.
+  `deadline`, `fragment`) is placed by the agent, so an entry must read correctly standing alone.
+  Coverage is derived from the table - a primitive exists when it has entries - and all nine
+  packs carry all nine primitives, which is why every style is available in every language.
 - **A style is never chosen for a language that cannot write it.** Selection is
   coverage-filtered, so a style's `needs` gate it exactly as `subjectCoverage` gates a
   subject. Forcing one anyway (the UI's rewrite path) is honoured and *reported* rather than
   silently substituted: `params.lyricAgentRealised: false`, and the style degrades onto the
   pack's general material instead of crashing.
+- **A reframe must actually reframe.** `boundedReframe` attaches the pack's qualifier to the hook
+  when the result fits the meter band, and returns the *qualifier alone* when it does not -
+  never the bare hook, because a closing line word-for-word identical to the hook is not a
+  reframe. The gate caught the first version doing that.
 - **Repetition is a fault in most styles and the technique in some.** `validate.ts` takes a
   `repetitionPolicy`, so a refrain is not scored as a defect; the count is still reported
   (`repeatedLines`) and the gate asserts the device was really used.
@@ -245,10 +250,10 @@ npx tsx scripts/lyric-preview.ts 42 --agent refrain-mutation
 ```
 
 Two limits, stated plainly: `question-answer` guarantees *distinct* questions that
-*lengthen* across the song, which is a proxy for rising stakes - semantic escalation needs
-the `ladder` primitive. And two engines (`promise-violation`, `groove-return`) are half
-musical: the lyrical half is ours, the melody side is carried into the style prompt as a hint
-and ultimately belongs to the engine.
+*lengthen* across the song, which is a proxy for rising stakes - semantic escalation needs the
+`ladder` primitive's ordering to be meaningful in context, not just in the bank. And two
+engines (`promise-violation`, `groove-return`) are half musical: the lyrical half is ours, the
+melody side is carried into the style prompt as a hint and ultimately belongs to the engine.
 
 ## Languages and singability
 

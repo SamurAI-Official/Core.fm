@@ -18,6 +18,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -28,6 +29,75 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
+
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines: an agent chooses the order, so nothing here may depend on a template around it.
+ * Every entry is nominative-safe and free of separable verbs, like the rest of this pack.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    'Warum bist du gegangen',
+    'Wohin gehst du, wenn du gehst',
+    'Wer rettet mich jetzt',
+    'Was mache ich mit dem Rest',
+    'Wie lange lasse ich das Licht an',
+    'Wann waren wir nicht mehr wir',
+  ],
+  answer: [
+    'Weil ich nicht bleiben konnte',
+    'Niemand, und niemand kam',
+    'Ich weiß es nicht, und das ist wahr',
+    'Es ging nie um mich',
+    'Weil es jemand tun musste',
+    'Ich war schon halb weg',
+  ],
+  claim: [
+    'Ich sagte, ich rufe nie an',
+    'Ich redete mir ein, es geht',
+    'Man sagt, die Zeit heilt alles',
+    'Ich hab versprochen, fernzubleiben',
+    'Ich sage mir, es ist vorbei',
+  ],
+  reversal: [
+    'Und dann habe ich angerufen',
+    'Aber ich schaue noch zur Tür',
+    'Warum erinnere ich mich dann',
+    'Ich war schon halb zurück',
+    'Eigentlich bin ich nie gegangen',
+  ],
+  implication: [
+    'Das heißt, jemand hat aufgehört',
+    'So sieht Weggehen also aus',
+    'Darum ging es bei der Stille',
+    'Das Licht war nicht für mich',
+    'So endet es also',
+  ],
+  universal: [
+    'Jeder lässt etwas zurück',
+    'Niemand behält das Jahr',
+    'Wir lernen es alle gleich',
+    'Manches endet erst später',
+    'Man kann nicht halten und gehen',
+  ],
+  ladder: [
+    'Ich habe die Schlüssel verloren',
+    'Ich habe den Zug verpasst',
+    'Ich habe das Gespräch verpasst',
+    'Im März habe ich den Job verloren',
+    'Ich kann die Miete nicht zahlen',
+  ],
+  deadline: [
+    'Drei Tage bis das Geld weg ist',
+    'Eine Nacht bis der Zug fährt',
+    'Zehn Euro bis zum Wochenende',
+    'Zwei Stunden bis sie schließen',
+    'Eine Woche bis zur Verhandlung',
+  ],
+  fragment: ['Nur der Regen', 'Nichts sonst', 'Nur die Stille', 'Immer noch nichts', 'Niemand antwortet'],
+};
 
 /**
  * Subject material.
@@ -208,6 +278,7 @@ export const germanPack: LanguagePack = {
   script: 'latin',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -218,7 +289,7 @@ export const germanPack: LanguagePack = {
 
   // Chart terms are foreign tokens here, so the intro uses the hook instead.
   introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  reframe: boundedReframe('latin'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 

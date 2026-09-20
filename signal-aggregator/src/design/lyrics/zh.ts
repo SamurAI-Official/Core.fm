@@ -21,6 +21,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -241,6 +242,39 @@ const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
     '总得有人去做',
     '我早就走了一半',
   ],
+  // A stated position the song then tests: promise, confession, belief.
+  claim: [
+    '我说过我绝不会打',
+    '我告诉自己我很好',
+    '大家都说时间会治愈',
+    '我说过我不会再去',
+    '我说我早就放下了',
+  ],
+  reversal: [
+    '可我还是按了那个号码',
+    '可我还是看着那扇门',
+    '那为什么我还记得',
+    '其实我已经走回去一半',
+    '其实我从来没有离开',
+  ],
+  implication: [
+    '这说明有人不再等了',
+    '原来离开就是这个样子',
+    '原来那些安静是为这个',
+    '那盏灯原来不是为我',
+    '原来是这样结束的',
+  ],
+  universal: [
+    '谁都会留下点什么',
+    '没有人能留住那一年',
+    '我们都用同一种方式学会',
+    '有些事过后才知道结束',
+    '抓着不放就没法离开',
+  ],
+  // Ordered escalation: the array *is* the escalation; order must not be shuffled.
+  ladder: ['我又丢了钥匙', '我错过了末班车', '我错过了那个面试', '三月我丢了工作', '我付不出房租'],
+  deadline: ['还有三天钱就花完了', '火车开走前的一晚', '十块钱撑到周末', '还有两小时就关门', '还有一周就要开庭'],
+  fragment: ['只是雨', '什么都没有', '只有安静', '没有人回答', '就这样'],
 };
 
 export const chinesePack: LanguagePack = {
@@ -262,7 +296,13 @@ export const chinesePack: LanguagePack = {
 
   // A Han chart word can stand as an ad-lib; otherwise the subject's own fragment.
   introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}，${qualifier}`,
+  /**
+   * Reframing is this pack's grammar decision, and so is knowing when the words will not fit:
+   * hook plus qualifier ran past the comfortable band at ordinary tempos. When the combined line
+   * is too long the qualifier carries the reframe alone - still a turning of the hook against
+   * itself, without asking for a line that cannot be sung.
+   */
+  reframe: boundedReframe('han', 12, '，'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 

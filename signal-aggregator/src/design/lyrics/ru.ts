@@ -25,6 +25,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -35,6 +36,76 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
+
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines: an agent chooses the order, so nothing here may rely on a template around it.
+ * Present and future forms only, and impersonal or plural where the past would have to be
+ * gendered - the same rule the rest of this pack follows.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    'Почему ты уходишь отсюда',
+    'Куда ты идёшь, когда уходишь',
+    'Кто теперь меня спасёт',
+    'Что мне делать с остатком',
+    'Сколько я держу этот свет',
+    'Когда мы перестали быть мы',
+  ],
+  answer: [
+    'Потому что я не могу остаться',
+    'Никто, и никто не пришёл',
+    'Я не знаю, и это правда',
+    'Это никогда не было про меня',
+    'Потому что кто-то должен был',
+    'Я уже на середине пути',
+  ],
+  claim: [
+    'Я обещаю не звонить',
+    'Я говорю себе, что всё хорошо',
+    'Говорят, что время лечит',
+    'Я обещаю держаться в стороне',
+    'Я повторяю: всё прошло',
+  ],
+  reversal: [
+    'А потом набираю твой номер',
+    'Но я всё ещё смотрю на дверь',
+    'Тогда почему я помню',
+    'Я уже на полпути назад',
+    'На самом деле я не уходил',
+  ],
+  implication: [
+    'Значит, кто-то перестал ждать',
+    'Вот как выглядит уход',
+    'Вот о чём была тишина',
+    'Этот свет был не для меня',
+    'Вот так это кончается',
+  ],
+  universal: [
+    'Каждый что-то оставляет',
+    'Никто не заберёт год с собой',
+    'Мы все учим это одинаково',
+    'Что-то кончается потом',
+    'Нельзя держать и уходить',
+  ],
+  ladder: [
+    'Я снова теряю ключи',
+    'Я опаздываю на поезд',
+    'Я пропускаю собеседование',
+    'В марте я теряю работу',
+    'Мне нечем платить за квартиру',
+  ],
+  deadline: [
+    'Три дня до конца денег',
+    'Одна ночь до поезда',
+    'Десять рублей до выходных',
+    'Два часа до закрытия',
+    'Неделя до суда',
+  ],
+  fragment: ['Только дождь', 'Больше ничего', 'Только тишина', 'Всё ещё ничего', 'Никто не отвечает'],
+};
 
 /**
  * Subject material.
@@ -183,6 +254,7 @@ export const russianPack: LanguagePack = {
   script: 'cyrillic',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -194,7 +266,7 @@ export const russianPack: LanguagePack = {
   // Chart terms arrive in the market's script; the subject ad-lib is the pack's own,
   // so the intro says something about this song even on a Latin-script chart.
   introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  reframe: boundedReframe('cyrillic'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 
