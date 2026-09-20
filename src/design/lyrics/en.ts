@@ -34,6 +34,7 @@ import {
 import { metaphorsFor } from '../imagery.js';
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -151,6 +152,62 @@ const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
     'Because somebody had to',
     'I was already half gone',
   ],
+  // A stated position: the promise, the confession, the belief the song then tests.
+  claim: [
+    'I said I would never call',
+    'I told myself I was fine',
+    'Everybody says that time heals',
+    'I promised I would stay away',
+    'I keep saying I am over it',
+  ],
+  // The line that undercuts the claim above it.
+  reversal: [
+    'Then I dialled your number anyway',
+    'But I still watch the door',
+    'So why do I still remember',
+    'And I was already halfway back',
+    'Except I never really left',
+  ],
+  // What the image implies, one step short of saying it.
+  implication: [
+    'Which means somebody stopped waiting',
+    'So this is what leaving looks like',
+    'That is what the quiet was about',
+    'Which means the light was never mine',
+    'So that is how it ends',
+  ],
+  // The wider statement the detail was standing in for.
+  universal: [
+    'Everyone leaves something behind',
+    'Nobody gets to keep the year',
+    'We all learn it the same way',
+    'Some things end in hindsight',
+    'You cannot hold it and leave it',
+  ],
+  // Ordered escalation: the array *is* the escalation, so the order must not be shuffled.
+  ladder: [
+    'I lost the keys again',
+    'I missed the last train home',
+    'I missed the interview',
+    'I lost the job in March',
+    'I cannot make the rent',
+  ],
+  // A stated limit, for the countdown style's invisible clock.
+  deadline: [
+    'Three days until the money runs out',
+    'One night before the train leaves',
+    'Ten dollars until the weekend',
+    'Two hours until they close the doors',
+    'One week until the hearing',
+  ],
+  // Short and stripped, for the break in a groove-return song.
+  fragment: [
+    'Just the rain',
+    'Nothing else',
+    'Only silence',
+    'Still nothing',
+    'No one answers',
+  ],
 };
 
 export const englishPack: LanguagePack = {
@@ -181,7 +238,7 @@ export const englishPack: LanguagePack = {
   // The market's own chart word wins when one is usable, then the subject's ad-lib,
   // then the hook: an intro should say something about this song, not just repeat it.
   introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  reframe: boundedReframe('latin'),
 
   metaphors: (family) => metaphorsFor(family),
 

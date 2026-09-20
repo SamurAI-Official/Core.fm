@@ -25,6 +25,7 @@ export type PrimitiveId =
   | 'implication'
   | 'universal'
   | 'ladder'
+  | 'deadline'
   | 'fragment';
 
 export const PRIMITIVE_IDS: PrimitiveId[] = [
@@ -35,6 +36,7 @@ export const PRIMITIVE_IDS: PrimitiveId[] = [
   'implication',
   'universal',
   'ladder',
+  'deadline',
   'fragment',
 ];
 
@@ -47,6 +49,7 @@ export const PRIMITIVE_LABELS: Record<PrimitiveId, string> = {
   implication: 'what the image implies, before the wider truth',
   universal: 'the wider human statement the detail was standing in for',
   ladder: 'one ordered escalation step (array order is the escalation order)',
+  deadline: 'a stated limit: time or money running out',
   fragment: 'a short, stripped line for after a break',
 };
 

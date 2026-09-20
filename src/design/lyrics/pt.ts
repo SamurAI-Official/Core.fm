@@ -16,6 +16,7 @@
  */
 import {
   bankPicker,
+  boundedReframe,
   fromBank,
   pairFromBank,
   sentenceCase,
@@ -26,6 +27,75 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
+
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines: an agent chooses the order, so nothing here may rely on a template around it,
+ * and self-descriptions stay invariable so no gender agreement is needed.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    'Por que você foi embora',
+    'Aonde você vai quando vai',
+    'Quem vai me salvar agora',
+    'O que eu faço com o resto',
+    'Quanto tempo deixo a luz acesa',
+    'Quando a gente deixou de ser nós',
+  ],
+  answer: [
+    'Porque eu não podia ficar',
+    'Ninguém, e ninguém veio',
+    'Eu não sei, e isso é verdade',
+    'Nunca foi sobre mim',
+    'Porque alguém tinha que fazer',
+    'Eu já estava no meio do caminho',
+  ],
+  claim: [
+    'Eu disse que nunca ligaria',
+    'Eu me disse que estava bem',
+    'Dizem que o tempo cura',
+    'Prometi ficar bem longe',
+    'Repito que já passou',
+  ],
+  reversal: [
+    'E depois disquei o teu número',
+    'Mas eu ainda olho a porta',
+    'Então por que eu lembro disso',
+    'Já estava no meio do caminho',
+    'Na verdade eu nunca saí',
+  ],
+  implication: [
+    'Quer dizer que alguém parou de esperar',
+    'É assim que parece ir embora',
+    'Era disso que o silêncio falava',
+    'Aquela luz não era pra mim',
+    'É assim que termina',
+  ],
+  universal: [
+    'Todo mundo deixa algo atrás',
+    'Ninguém fica com o ano',
+    'A gente aprende igual',
+    'Algumas coisas acabam depois',
+    'Não dá pra segurar e ir',
+  ],
+  ladder: [
+    'Perdi as chaves de novo',
+    'Perdi o último trem',
+    'Faltei na entrevista',
+    'Em março perdi o emprego',
+    'Não consigo pagar o aluguel',
+  ],
+  deadline: [
+    'Três dias até o dinheiro acabar',
+    'Uma noite antes do trem',
+    'Dez reais até o fim de semana',
+    'Duas horas até fechar',
+    'Uma semana até a audiência',
+  ],
+  fragment: ['Só a chuva', 'Nada mais', 'Só silêncio', 'Ainda nada', 'Ninguém responde'],
+};
 
 /**
  * Subject material.
@@ -177,6 +247,7 @@ export const portuguesePack: LanguagePack = {
   script: 'latin',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -187,7 +258,7 @@ export const portuguesePack: LanguagePack = {
 
   // Chart terms are English/Latin tokens, so the intro uses the hook instead.
   introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
-  reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
+  reframe: boundedReframe('latin'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
 
