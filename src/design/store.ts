@@ -171,3 +171,25 @@ export function usedTitles(market: string, limit = 200): string[] {
   );
   return rows.map((row) => row.title);
 }
+
+/**
+ * Subjects already written for a market, newest first.
+ *
+ * Read back from the stored designs (`params.lyricSubject`) rather than kept in
+ * memory, so rotation survives a restart and reflects what was actually designed.
+ * A concept predating the subject engine simply contributes nothing.
+ */
+export function usedSubjects(market: string, limit = 24): string[] {
+  const { rows } = pool.query<{ params: string }>(
+    'SELECT params FROM concepts WHERE market = ? ORDER BY created_at DESC LIMIT ?',
+    [market, limit],
+  );
+  const subjects: string[] = [];
+  for (const row of rows) {
+    const subject = jsonParse<Record<string, unknown>>(row.params, {}).lyricSubject;
+    if (typeof subject === 'string' && subject.length > 0 && !subjects.includes(subject)) {
+      subjects.push(subject);
+    }
+  }
+  return subjects;
+}

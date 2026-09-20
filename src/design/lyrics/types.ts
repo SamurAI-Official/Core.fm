@@ -34,6 +34,16 @@ export interface LyricContext {
   qualifier: string;
   /** A topical word from the market's chart, used only as an ad-lib. */
   topicWord?: string;
+  /**
+   * What this song is about (an id from `subjects.ts`).
+   *
+   * Chosen per concept - partly from the market's own chart words and themes - so the
+   * writer is not locked to one story across every market, genre and language. The
+   * pack decides where the subject shows up in its own grammar; see `SubjectTable`.
+   */
+  subject: string;
+  /** English label for `subject`, for the rationale, the UI and logs. */
+  subjectLabel: string;
 }
 
 /**
@@ -70,6 +80,16 @@ export interface LanguagePack {
    * happened - grammatical correctness is verifiable by test, naturalness is not.
    */
   reviewStatus?: 'unreviewed' | 'native-reviewed';
+
+  /**
+   * Subject ids (see `subjects.ts`) this pack writes natively.
+   *
+   * The orchestrator only chooses from this list, so a concept is never labelled
+   * with a subject the pack can only fall back on. Absent or empty means "general
+   * material only": the catalog is still drawn from, but the plan records
+   * `subjectRealised: false` so the limitation is visible rather than implied.
+   */
+  subjectCoverage?: string[];
 
   /** Builds the hook (subject + verb), agreeing in this language's grammar. */
   buildHook(rng: () => number): string;
@@ -123,4 +143,60 @@ export function sentenceCase(input: string): string {
 /** Trims a generated line list to the section's line budget. */
 export function takeLines(lines: string[], count: number): string[] {
   return lines.slice(0, Math.max(1, Math.min(count, lines.length)));
+}
+
+/**
+ * A pack's material for one subject.
+ *
+ * `adlib` is a short, self-contained fragment (a noun phrase or a short clause) used
+ * for the intro, and `banks` adds subject-specific lines per arc stage. Any stage a
+ * subject does not cover falls back to the pack's general bank, so partial coverage
+ * is safe by construction - a pack can add one subject at a time without any stage
+ * ever being able to render empty.
+ */
+export interface SubjectMaterial {
+  /** Intro ad-lib in this language. Must read correctly standing alone. */
+  adlib: string;
+  /**
+   * Optional replacement for the pack's self-description bank ("I'm ...").
+   *
+   * This is the only extra slot because it is the one every pack already has and the
+   * one that lands inside a two-line section budget: without it, a subject can be
+   * missing from a verse whose stage budget only reaches the first two lines.
+   */
+  selves?: string[];
+  /** Subject-specific stage banks. Missing stages use the general bank. */
+  banks?: Partial<Record<LyricStage, string[]>>;
+}
+
+/** Subject id -> material, declared by each pack in its own language. */
+export type SubjectTable = Record<string, SubjectMaterial>;
+
+/**
+ * Bank picker for pack renderers.
+ *
+ * Grammar stays in the pack: the pack supplies its own subject banks, and this only
+ * decides between them and the general bank for the same grammatical slot.
+ */
+export function bankPicker(table: SubjectTable | undefined) {
+  return (ctx: LyricContext, stage: LyricStage, general: string[]): string[] => {
+    const entry = table?.[ctx.subject]?.banks?.[stage];
+    return entry && entry.length > 0 ? entry : general;
+  };
+}
+
+/** Intro ad-lib for the current subject, or undefined when the pack has none. */
+export function subjectAdlib(table: SubjectTable | undefined, ctx: LyricContext): string | undefined {
+  return table?.[ctx.subject]?.adlib;
+}
+
+/** Subject-specific self-description bank, or undefined for the pack's general one. */
+export function subjectSelves(table: SubjectTable | undefined, ctx: LyricContext): string[] | undefined {
+  const selves = table?.[ctx.subject]?.selves;
+  return selves && selves.length > 0 ? selves : undefined;
+}
+
+/** Subject ids a pack realises, for reporting and tests. */
+export function subjectIdsOf(table: SubjectTable | undefined): string[] {
+  return Object.keys(table ?? {});
 }

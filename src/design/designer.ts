@@ -13,7 +13,7 @@ import { flavorFor } from './marketFlavor.js';
 import { buildRationale, chooseTitle, composeStylePrompt } from './prompt.js';
 import { GENRE_TEMPO_HINTS, clampBpm, suggestKeys, tempoClass } from '../analysis/tempo.js';
 import { validateLyricPlan, writeLyrics } from './lyrics.js';
-import { insertConcept, usedTitles } from './store.js';
+import { insertConcept, usedSubjects, usedTitles } from './store.js';
 import type { Concept, DesignRequest, MarketWeight } from './types.js';
 
 /** Genres that are usually instrumental in their market. */
@@ -82,6 +82,11 @@ export function designConcepts(request: DesignRequest): Concept[] {
   const learned = weightMap(request.learnedWeights);
   const flavor = flavorFor(market);
   const used = usedTitles(market);
+  // Subjects this market has already been given, plus the ones chosen earlier in this
+  // run: a batch of three designs should be three different subjects, not one subject
+  // three times. Both lists only bias the choice - design never fails for lack of one.
+  const recentSubjects = usedSubjects(market);
+  const runSubjects: string[] = [];
   const baseSeed = request.seed ?? Math.floor(Math.random() * 1_000_000);
   const concepts: Concept[] = [];
 
@@ -132,7 +137,11 @@ export function designConcepts(request: DesignRequest): Concept[] {
       genre: primaryGenre,
       rng,
       instrumental,
+      usedSubjects: [...recentSubjects, ...runSubjects],
     });
+
+    // Recorded so the next run in this market rotates rather than repeating.
+    runSubjects.push(lyricPlan.subject);
 
     // The language the lyrics are *actually* written in, which is what the engine
     // must be told to sing - not the language the market asked for.
@@ -181,6 +190,11 @@ export function designConcepts(request: DesignRequest): Concept[] {
         ...(learnedTags.length > 0 ? [`tag preferences ${learnedTags.join(', ')}`] : []),
         // Surfaced in the rationale so a language fallback is impossible to miss.
         ...(lyricPlan.languageFallback ? [`language fallback: ${lyricPlan.languageNote}`] : []),
+        // And so is the subject: what it is, where it came from, and whether the pack
+        // could write it natively.
+        `subject "${lyricPlan.subjectLabel}" (${lyricPlan.subjectSource}${
+          lyricPlan.subjectMatched ? `: ${lyricPlan.subjectMatched}` : ''
+        }${lyricPlan.subjectRealised ? '' : ', general material only'})`,
         `lyric singability ${lyricValidation.score}`,
       ],
       arcSummary: lyricPlan.arcSummary,
@@ -240,6 +254,13 @@ export function designConcepts(request: DesignRequest): Concept[] {
           lyricLanguageFallback: lyricPlan.languageFallback,
           lyricLanguageNote: lyricPlan.languageNote,
           lyricPack: lyricPlan.packLabel,
+          // What the song is about, and where that came from: the market's own chart
+          // words and themes, rotation, or a seeded draw.
+          lyricSubject: lyricPlan.subject,
+          lyricSubjectLabel: lyricPlan.subjectLabel,
+          lyricSubjectSource: lyricPlan.subjectSource,
+          lyricSubjectMatched: lyricPlan.subjectMatched,
+          lyricSubjectRealised: lyricPlan.subjectRealised,
           // Singability gate: score plus the specific lines that failed it.
           lyricValidation: {
             score: lyricValidation.score,

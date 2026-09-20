@@ -108,8 +108,9 @@ Design decisions worth knowing:
 - **Grammar lives in the language pack, not in shared templates.** Banks are written
   for one template each and places are split by preposition, so "on a rented room" is
   impossible; French computes elision (`je` → `j'`) and German binds case-correct noun
-  phrases. External words (chart terms) are only used as ad-libs, and only in English
-  lyrics, since a foreign token in a French or German line is its own kind of bug.
+  phrases. External words (chart terms) are only used as ad-libs, and only when the word
+  is written in the pack's **own script** — a Latin chart word is never injected into a
+  Korean or Chinese line, while a Korean chart word is now usable in one.
 - **Section headers stay plain** (`[Verse 1]`, `[Chorus]`) because that is the format
   ACE-Step parses. The arc is reported separately (`concept.params.lyricArc`) and shown
   in the UI's augmentation panel, next to the metaphor, contradiction, conclusion and
@@ -124,7 +125,47 @@ guarantee about the final sung words. Occasional word-level echoes across sectio
 Preview the arc without touching the pipeline:
 
 ```bash
-npx tsx scripts/lyric-preview.ts 42   # 10 market/genre/language cases + singability
+npx tsx scripts/lyric-preview.ts 42   # 13 market/genre/language cases + singability
+```
+
+## What a song is about (subjects)
+
+The banks alone told one story — midnight, staying or leaving, ambivalence — and the
+market's own topics never reached the lyrics: `themes` was accepted and ignored, and
+`terms` only ever fed a single English ad-lib. A generator that cannot be about anything
+else is subject-constrained however good its grammar is, so the subject is now an
+explicit, reported decision.
+
+| Piece | Where | What it does |
+|---|---|---|
+| `SUBJECTS` | `design/lyrics/subjects.ts` | six subjects (leaving and staying; city life and work; family and distance from home; celebration and hustle; memory and loss; starting over), each with the chart words and theme phrases that point at it, plus the imagery families it prefers |
+| `chooseSubject()` | `design/lyrics/subjects.ts` | chooses per song: matched from the market's chart words and flavour themes when the script can be compared, otherwise a seeded, rotating draw |
+| `subjectCoverage` | each pack | the subjects a pack writes natively. Only these are ever chosen for it, so a subject the pack cannot write is impossible to label a concept with |
+| `SubjectTable` | each pack | that pack's own material for a subject: an intro ad-lib, a self-description bank, and stage banks. Any slot a subject omits falls back to the general bank |
+
+Consequences worth knowing:
+
+- **A design run rotates.** `designConcepts` reads the market's previous subjects back
+  out of the store and passes them as exclusions, so three designs in one batch are
+  three different subjects and a later run does not repeat the last one.
+- **Non-Latin charts rotate rather than match.** Keyword matching compares English
+  keywords, so a Korean or Chinese chart cannot be matched against them; those markets
+  rotate through the catalogue instead. Rotation is therefore a first-class path, not a
+  fallback of last resort — and the Korean and Chinese packs carry all six subjects.
+- **Partial coverage is safe and labelled.** A pack can add one subject at a time (the
+  European packs carry three each today), and `params.lyricSubjectRealised` records
+  whether the writing pack had material for the subject that was chosen.
+- **Imagery follows the subject 60% of the time**, and the genre's own family the rest,
+  so a screen door still reads country.
+- **Everything is recorded**: `params.lyricSubject`, `lyricSubjectLabel`,
+  `lyricSubjectSource` (`chart-topic` | `rotation` | `seeded`), `lyricSubjectMatched` and
+  `lyricSubjectRealised`, and the rationale names the subject and where it came from.
+
+Check the whole thing — coverage, rotation, that a forced subject really changes the
+lyrics, and that chart words drive it:
+
+```bash
+npm run test:subjects
 ```
 
 ## Languages and singability
@@ -138,24 +179,33 @@ can verify.
 
 | Pack | Status | Notes |
 |---|---|---|
-| `en` English | complete | banks in `src/design/lyricBanks.ts` |
+| `en` English | complete | banks in `src/design/lyricBanks.ts`; the reference pack, with subject material for all six subjects |
 | `fr` French | complete | "on" as collective subject (3rd-person singular verb, so no plural agreement to get wrong); elision computed (`je` → `j'` before a vowel); self-descriptions kept adverbial to avoid gendered predicative adjectives; the scale expansion uses whole pre-agreed clauses |
 | `de` German | complete | nominative-only interpolation so article case cannot break; uncertainty uses full subordinate clauses so the verb-final rule holds by construction; inversion after fronted adverbs ("Also nehme ich das Steuer"); separable verbs avoided |
-| `ja ko zh hi pt es it nl ru ar …` | **pending** | no pack yet |
+| `es` Spanish | complete | a single preposition ("en") is correct with every place, so no preposition table is needed; self-descriptions invariable and adverbial; scale expansion uses whole pre-agreed clauses |
+| `it` Italian | complete | "in" is correct with every place, so no articulated-preposition table is needed; "Ho finito di…" instead of the gendered "sono stanco di…"; invariable adverbial self-descriptions |
+| `pt` Brazilian Portuguese | complete | "em" contractions baked into the place phrases ("nessa rua", "no lado leste"); "a gente" takes a 3rd-person singular verb, so plural agreement cannot go wrong; invariable adverbial self-descriptions |
+| `ru` Russian | complete | past tense is gendered and the singer's gender is unknown, so the pack writes present and future forms and uses the gender-neutral plural past where the past is unavoidable; prepositional phrases stored complete (case cannot be composed); short neuter forms agree with "всё" |
+| `ko` Korean | complete | Hangul. No plural, gender or agreement at all, so the risk moves to **particles**: 은/는, 이/가, 을/를 depend on whether the preceding syllable has a final consonant, so they are baked into the bank entries rather than appended. Plain 한다/해체 style throughout; bare time nouns, because a wrong copula or politeness level is worse than none |
+| `zh` Mandarin Chinese | complete | Han. No inflection either, so the risk moves to **measure words and word order**: banks are whole phrases and the templates add no particle that depends on the preceding syllable. One syllable per character; rhyme is treated as approximate because real Mandarin rhyme is a rime-plus-tone system orthography cannot express |
+| `ja hi nl uk ar tr id ms th vi tl sv no da fi pl el ur he sw yo ig zu …` | **pending** | no pack yet — falls back to English and reports it |
 
 **The critical fix.** Previously a concept for the Japanese market carried
 `vocal_language: 'ja'` while its lyrics were English — the engine was asked to sing
 English words as Japanese and nothing in the pipeline noticed. Now:
 
-- `concept.vocalLanguage` is the language the lyrics are **actually written in**, so
-  only `en`/`fr`/`de` can ever be sent to the engine;
+- `concept.vocalLanguage` is the language the lyrics are **actually written in**, so the
+  engine is only ever told to sing a language a pack can write (`en`, `fr`, `de`, `es`,
+  `it`, `pt`, `ru`, `ko`, `zh` today);
 - a market whose language has no pack falls back to English and this is **reported**,
   not hidden — in the rationale, the CLI output, `params.requestedLanguage`,
   `params.lyricLanguageFallback` and the UI.
 
 To add a language: create `src/design/lyrics/<code>.ts` implementing `LanguagePack`
-(see `fr.ts` as the reference), register it in `lyrics/index.ts`, and add its code to
-that pack list.
+(see `ru.ts` or `ko.ts` as the reference), register it in `lyrics/index.ts`, drop it
+from `PENDING`, and gate it with `npm run test:packs -- <code>`. A new pack should also
+declare `subjectCoverage` and its own subject material — a pack with no coverage still
+works, but every concept it writes is reported as "general material only".
 
 ### Singability gate
 
@@ -204,6 +254,17 @@ chart-junk filtering, positive *and* negative rhyme cases, and accent-insensitiv
 cliché matching. `validate.ts` previously had **no tests at all**, which is exactly how
 the two silent failures above survived; the suite now also pins the *old* behaviour so
 it cannot return.
+
+Two further gates cover the packs and the subject engine, and both are runnable without
+the pipeline or a database:
+
+- `npm run test:packs -- ru ko zh` — per pack: no language fallback, output in the
+  right script, lines inside the meter band, and none of that language's clichés
+  (`scripts/lyric-pack-acceptance.ts`);
+- `npm run test:subjects` — every pack declares at least three subjects it can write, a
+  run rotates through them, forcing a different subject changes the lyrics, a chart word
+  in the pack's own script is usable as an ad-lib and a Latin one is rejected for it, and
+  chart words actually drive the subject (`scripts/subject-spread.ts`).
 
 ### Two limits, stated plainly
 
@@ -371,11 +432,13 @@ and the verdict is `unrated` — never presented as market evidence.
   a preference. The `key` score component stays neutral (0.6) until then.
 - **Momentum needs two collections.** The first run per market is a baseline and
   says so; churn/new-entry numbers only appear after the next collection.
-- **Lyrics are written in `en`, `fr` or `de`; other markets fall back to English.**
-  Structure and topics still come from the market's themes, and with `THINKING=true`
-  the ACE-Step LM rewrites them — but the language the engine is told to sing is always
-  the one the lyrics are written in. See "Languages and singability" above. Pending
-  packs: `ja ko zh hi pt es it nl ru ar`.
+- **Lyrics are written in nine languages** (`en`, `fr`, `de`, `es`, `it`, `pt`, `ru`,
+  `ko`, `zh`); other markets fall back to English and that is reported rather than
+  hidden. Structure, language and subject all come from the market's own evidence, and
+  with `THINKING=true` the ACE-Step LM rewrites the scaffold — but the language the
+  engine is told to sing is always the one the lyrics are written in. See "Languages and
+  singability" above. Pending packs: `ja hi nl uk ar tr id ms th vi tl sv no da fi pl el
+  ur he sw yo ig zu`.
 - **Forecasts are not usable yet.** They are implemented and damped correctly, but the
   database currently holds a single day of history, so every market reports
   `depth: insufficient` with a caveat. Real forecasts need the scheduler to run for
@@ -393,7 +456,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MARKETS` | `us,gb,fr,de,br,jp,in,ng` | Storefront codes to aggregate |
+| `MARKETS` | `us,gb,fr,de,br,jp,kr,cn,in,ng` | Storefront codes to aggregate. `kr` and `cn` are included so Korean and Chinese charts are designed in `ko`/`zh` rather than falling back to English |
 | `ACESTEP_UI_URL` | `http://localhost:3001` | Local ace-step-ui backend |
 | `DURATION` / `CONCEPTS_PER_MARKET` | `120` / `3` | Design defaults |
 | `THINKING` / `ENHANCE` | `true` | Let the LM enrich captions/lyrics |
@@ -422,7 +485,8 @@ src/
   sources/    apple.ts deezer.ts itunes.ts store.ts collect.ts
   briefs/     build.ts types.ts                    market profiles
   design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts
-  design/lyrics/  index.ts types.ts en.ts fr.ts de.ts validate.ts   language packs + singability gate
+  design/lyrics/  index.ts types.ts subjects.ts en.ts fr.ts de.ts es.ts it.ts pt.ts ru.ts ko.ts zh.ts validate.ts
+                  language packs, the subject catalogue, and the singability gate
   forecast/   forecast.ts                          damped projections with sample-depth confidence
   schedule/   scheduler.ts                         periodic collection (history for forecasting)
   pipeline/   client.ts submit.ts run.ts            ACE-Step integration
@@ -433,5 +497,7 @@ src/
   db/         index.ts migrate.ts    cli/args.ts     index.ts (CLI)
 scripts/db-stats.ts                                data-quality report
 scripts/lyric-preview.ts                           arc + grammar + singability preview
-scripts/inspect-concepts.ts                        language provenance per concept
+scripts/lyric-pack-acceptance.ts                   per-pack gate: language, script, meter, cliches
+scripts/subject-spread.ts                          subject coverage, rotation, chart-topic matching
+scripts/inspect-concepts.ts                        language and subject provenance per concept
 ```

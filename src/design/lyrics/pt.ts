@@ -14,7 +14,46 @@
  *  - time expressions carry their own copula so "É meia-noite" and "São quatro" are
  *    both correct.
  */
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material.
+ *
+ * `selves` completes "Estou ...", so every entry is invariable (no gender agreement),
+ * matching how `SELVES` is written; closing lines are complete short sentences.
+ * Uncovered stages fall back to the general bank.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'celebration-and-hustle': {
+    adlib: 'a última música da noite',
+    selves: ['ainda na pista', 'no meio da festa', 'sem sono'],
+    banks: { conclusion: ['E a noite ainda não acabou', 'A gente continua aqui'] },
+  },
+  'starting-over': {
+    adlib: 'uma chave que não serve mais',
+    selves: ['quase na estrada', 'de mudança', 'aqui de passagem'],
+    banks: { conclusion: ['Não é aqui que termina', 'Amanhã já é um começo'] },
+  },
+  'memory-and-loss': {
+    adlib: 'uma foto desbotada',
+    selves: ['ainda contando os anos', 'do lado do silêncio', 'no mesmo lugar'],
+    banks: { conclusion: ['Nada se apagou', 'Ainda sei o caminho de volta'] },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 const TIMES: Array<{ lead: string; text: string }> = [
   { lead: 'É', text: 'meia-noite' },
@@ -137,6 +176,7 @@ export const portuguesePack: LanguagePack = {
   nativeLabel: 'Português (Brasil)',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -146,7 +186,7 @@ export const portuguesePack: LanguagePack = {
   pickQualifier: (rng) => fromBank(rng, QUALIFIERS),
 
   // Chart terms are English/Latin tokens, so the intro uses the hook instead.
-  introLine: (ctx) => `(${ctx.hook})`,
+  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
@@ -160,7 +200,7 @@ export const portuguesePack: LanguagePack = {
       return takeLines(
         [
           `${time.lead} ${time.text} ${place}`,
-          `Estou ${fromBank(ctx.rng, SELVES, used)}`,
+          `Estou ${fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used)}`,
           sentenceCase(fromBank(ctx.rng, DETAILS, used)),
         ],
         count,
@@ -233,7 +273,7 @@ export const portuguesePack: LanguagePack = {
       const time = TIMES[Math.floor(ctx.rng() * TIMES.length)] ?? TIMES[0];
       return takeLines(
         [
-          fromBank(ctx.rng, UNRESOLVED, used),
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED), used),
           `Em algum lugar ${time.lead.toLowerCase()} ainda ${time.text}`,
         ],
         count,

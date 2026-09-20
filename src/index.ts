@@ -129,6 +129,15 @@ async function main(): Promise<void> {
         log(`  why  : ${concept.rationale}`);
         const arcSummary = concept.params?.lyricArcSummary;
         const hook = concept.params?.hook;
+        const subjectLabel = concept.params?.lyricSubjectLabel;
+        const subjectSource = concept.params?.lyricSubjectSource;
+        if (typeof subjectLabel === 'string') {
+          log(
+            `  about: ${subjectLabel} (${concept.params?.lyricSubject}${
+              typeof subjectSource === 'string' ? `, ${subjectSource}` : ''
+            }${concept.params?.lyricSubjectRealised === false ? ', general material only' : ''})`,
+          );
+        }
         if (typeof hook === 'string') log(`  hook : ${hook}`);
         if (typeof arcSummary === 'string') log(`  arc  : ${arcSummary}`);
       }
