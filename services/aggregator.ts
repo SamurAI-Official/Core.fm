@@ -111,6 +111,14 @@ export interface MarketWeights {
   value: number;
 }
 
+/** A language the lyric writer has a pack for, as reported by the aggregator. */
+export interface TrendLanguage {
+  code: string;
+  label: string;
+  nativeLabel: string;
+  reviewStatus: 'unreviewed' | 'native-reviewed';
+}
+
 async function request<T>(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(`${BASE}${endpoint}`, {
     method: options.method ?? 'GET',
@@ -153,6 +161,15 @@ export const trendsApi = {
 
   markets: (): Promise<{ markets: Array<{ market: string; name: string; language: string; region: string }> }> =>
     request('/api/markets'),
+
+  /**
+   * Language options for the concept editor.
+   *
+   * Served by the aggregator from its own pack registry, so the dropdown can never
+   * offer a language the lyric writer cannot write without marking it as a fallback -
+   * the list and the capability are the same list.
+   */
+  languages: (): Promise<{ languages: TrendLanguage[]; pending: string[] }> => request('/api/languages'),
 
   marketDetail: (
     cc: string,

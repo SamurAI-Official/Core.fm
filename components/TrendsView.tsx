@@ -12,7 +12,14 @@ import {
   Star,
   Wand2,
 } from 'lucide-react';
-import { trendsApi, type ConceptPatch, type MarketTrend, type TrendConcept, type TrendRun } from '../services/aggregator';
+import {
+  trendsApi,
+  type ConceptPatch,
+  type MarketTrend,
+  type TrendConcept,
+  type TrendLanguage,
+  type TrendRun,
+} from '../services/aggregator';
 
 interface TrendsViewProps {
   /** Toast bridge from App, so aggregation feedback uses the app's own toasts. */
@@ -29,7 +36,13 @@ const score = (value: number | null | undefined): string =>
 
 const shortId = (id: string | null | undefined): string => (id ? id.slice(0, 8) : '-');
 
-const LANGUAGES = ['en', 'es', 'pt', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'hi', 'ta', 'ar', 'tr', 'id', 'sw', 'yo'];
+/**
+ * Fallback language list for the augmentation editor, used only until the aggregator
+ * answers `GET /api/languages`. It is a fallback because a hard-coded list had already
+ * drifted from reality: `ru` was missing here even though a Russian pack existed. The
+ * real list is served by the service that owns the packs.
+ */
+const LANGUAGES = ['en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'ko', 'zh', 'ja', 'hi', 'ta', 'ar', 'tr', 'id', 'sw', 'yo'];
 const KEYS = [
   'C major', 'C minor', 'C# major', 'C# minor', 'D major', 'D minor', 'D# major', 'D# minor',
   'E major', 'E minor', 'F major', 'F minor', 'F# major', 'F# minor', 'G major', 'G minor',
@@ -86,13 +99,13 @@ function draftFrom(concept: TrendConcept): ConceptDraft {
 const statusStyle = (status: string): string => {
   switch (status) {
     case 'succeeded':
-      return 'bg-emerald-500/15 text-emerald-300';
+      return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     case 'failed':
-      return 'bg-red-500/15 text-red-300';
+      return 'bg-red-500/15 text-red-700 dark:text-red-300';
     case 'running':
       return 'bg-amber-500/15 text-amber-300';
     default:
-      return 'bg-zinc-500/15 text-zinc-300';
+      return 'bg-zinc-500/15 text-zinc-700 dark:text-zinc-300';
   }
 };
 
@@ -110,6 +123,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ showToast }) => {
   const [error, setError] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<{ healthy: boolean; url: string; detail?: string } | null>(null);
   const [reportText, setReportText] = useState<string | null>(null);
+  // Language options as reported by the aggregator's pack registry, plus the known codes
+  // that still have no pack (offered, but labelled as an English fallback).
+  const [languagePacks, setLanguagePacks] = useState<TrendLanguage[]>([]);
+  const [pendingLanguages, setPendingLanguages] = useState<string[]>([]);
 
   // Trigger controls
   const [targetMarkets, setTargetMarkets] = useState<string[]>([]);
@@ -129,9 +146,19 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ showToast }) => {
 
   const loadOverview = useCallback(async () => {
     try {
-      const [{ markets: rows }, health] = await Promise.all([trendsApi.overview(), trendsApi.health()]);
+      const [{ markets: rows }, health, languageOptions] = await Promise.all([
+        trendsApi.overview(),
+        trendsApi.health(),
+        // An older aggregator may predate /api/languages; the built-in list covers that
+        // case instead of failing the whole overview.
+        trendsApi.languages().catch(() => null),
+      ]);
       setMarkets(rows);
       setPipeline(health.pipeline);
+      if (languageOptions) {
+        setLanguagePacks(languageOptions.languages);
+        setPendingLanguages(languageOptions.pending);
+      }
       setError(null);
       setTargetMarkets((current) => (current.length > 0 ? current : rows.map((row) => row.market)));
       return true;
@@ -362,6 +389,17 @@ const handleSaveConcept = async (conceptId: string) => {
       notify((reportError as Error).message, 'error');
     }
   };
+
+  // Options for the vocal-language select: real packs first (code plus English label),
+  // then the codes that would fall back to English, labelled as such so choosing one is
+  // an informed choice rather than a surprise.
+  const languageChoices = [
+    ...(languagePacks.length > 0
+      ? languagePacks.map((pack) => ({ value: pack.code, label: `${pack.code} - ${pack.label}` }))
+      : LANGUAGES.map((code) => ({ value: code, label: code }))),
+    ...pendingLanguages.map((code) => ({ value: code, label: `${code} - falls back to English` })),
+  ];
+
 return (
     <div className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-8 py-6 pb-40">
       <div className="max-w-6xl mx-auto">
@@ -382,7 +420,7 @@ return (
             {pipeline && (
               <span
                 className={`px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 ${
-                  pipeline.healthy ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
+                  pipeline.healthy ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-red-500/15 text-red-700 dark:text-red-300'
                 }`}
                 title={pipeline.url}
               >
@@ -401,7 +439,7 @@ return (
         </div>
 
         {error && (
-          <div className="mb-5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-200">
+          <div className="mb-5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-800 dark:text-amber-200">
             {error}
           </div>
         )}
@@ -442,7 +480,7 @@ return (
                 max={5}
                 value={perMarket}
                 onChange={(event) => setPerMarket(Math.max(1, Math.min(5, Number(event.target.value) || 1)))}
-                className="w-14 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10"
+                className="w-14 px-2 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700"
               />
             </label>
             <label className="flex items-center gap-2">
@@ -453,7 +491,7 @@ return (
                 max={8}
                 value={renderCount}
                 onChange={(event) => setRenderCount(Math.max(0, Math.min(8, Number(event.target.value) || 0)))}
-                className="w-14 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10"
+                className="w-14 px-2 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700"
               />
               song(s)
             </label>
@@ -505,7 +543,7 @@ return (
           </div>
 
           {(busy !== null || progress) && (
-            <p className="mt-3 text-xs text-amber-400 flex items-center gap-2">
+            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
               {busy !== null && <Loader2 size={12} className="animate-spin" />}
               {progress}
             </p>
@@ -516,7 +554,7 @@ return (
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-white mb-3 flex items-center gap-2">
             <BarChart3 size={15} className="text-pink-500" />
             Markets
-            {loading && <Loader2 size={13} className="animate-spin text-zinc-500" />}
+            {loading && <Loader2 size={13} className="animate-spin text-zinc-500 dark:text-zinc-400" />}
           </h2>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {markets.map((market) => {
@@ -534,9 +572,9 @@ return (
                   <div className="flex items-baseline justify-between">
                     <h3 className="font-semibold text-sm text-zinc-900 dark:text-white">
                       {market.name}
-                      <span className="ml-2 text-xs text-zinc-500">{market.market.toUpperCase()}</span>
+                      <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">{market.market.toUpperCase()}</span>
                     </h3>
-                    <span className="text-[11px] text-zinc-500">conf {market.confidence.toFixed(2)}</span>
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">conf {market.confidence.toFixed(2)}</span>
                   </div>
 
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
@@ -555,11 +593,11 @@ return (
                             style={{ width: `${Math.min(100, genre.share * 300)}%` }}
                           />
                         </span>
-                        <span className="w-9 text-right text-zinc-500">{pct(genre.share)}</span>
+                        <span className="w-9 text-right text-zinc-500 dark:text-zinc-400">{pct(genre.share)}</span>
                       </li>
                     ))}
                     {market.topGenres.length === 0 && (
-                      <li className="text-[11px] text-zinc-500">no signals collected yet</li>
+                      <li className="text-[11px] text-zinc-500 dark:text-zinc-400">no signals collected yet</li>
                     )}
                   </ul>
 
@@ -569,12 +607,12 @@ return (
                       : 'baseline snapshot (momentum after the next collect)'}
                   </p>
                   {market.chartLeaders.length > 0 && (
-                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 truncate">
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 dark:text-zinc-400 mt-1 truncate">
                       {market.chartLeaders.join(' / ')}
                     </p>
                   )}
                   {market.themes.length > 0 && (
-                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 truncate">
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 dark:text-zinc-400 mt-1 truncate">
                       themes: {market.themes.slice(0, 5).join(', ')}
                     </p>
                   )}
@@ -637,7 +675,7 @@ return (
                       <span
                         key={weight.key}
                         className={`px-2 py-0.5 rounded-full text-[11px] ${
-                          weight.value >= 1 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
+                          weight.value >= 1 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-red-500/15 text-red-700 dark:text-red-300'
                         }`}
                       >
                         {weight.key} x{weight.value.toFixed(3)}
@@ -675,7 +713,7 @@ return (
                           {draft.duration}s - {draft.vocalLanguage}
                           {draft.instrumental ? ' - instrumental' : ''}
                         </p>
-                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1 max-w-3xl">{concept.rationale}</p>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 dark:text-zinc-400 mt-1 max-w-3xl">{concept.rationale}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 rounded-full text-[11px] ${statusStyle(concept.status)}`}>
@@ -705,7 +743,7 @@ return (
                             <input
                               value={draft.title ?? ''}
                               onChange={(event) => updateDraft(concept.id, { title: event.target.value })}
-                              className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                              className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                             />
                           </label>
                           <div className="grid grid-cols-4 gap-2">
@@ -717,7 +755,7 @@ return (
                                 max={220}
                                 value={draft.bpm ?? 0}
                                 onChange={(event) => updateDraft(concept.id, { bpm: Number(event.target.value) })}
-                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                               />
                             </label>
                             <label className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -725,7 +763,7 @@ return (
                               <select
                                 value={draft.keyScale ?? 'C major'}
                                 onChange={(event) => updateDraft(concept.id, { keyScale: event.target.value })}
-                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                               >
                                 {KEYS.map((key) => (
                                   <option key={key} value={key}>
@@ -739,7 +777,7 @@ return (
                               <select
                                 value={draft.timeSignature ?? '4/4'}
                                 onChange={(event) => updateDraft(concept.id, { timeSignature: event.target.value })}
-                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                               >
                                 {METERS.map((meter) => (
                                   <option key={meter} value={meter}>
@@ -756,7 +794,7 @@ return (
                                 max={300}
                                 value={draft.duration ?? 0}
                                 onChange={(event) => updateDraft(concept.id, { duration: Number(event.target.value) })}
-                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                                className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                               />
                             </label>
                           </div>
@@ -767,7 +805,7 @@ return (
                             rows={3}
                             value={draft.style ?? ''}
                             onChange={(event) => updateDraft(concept.id, { style: event.target.value })}
-                            className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white font-mono"
+                            className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white font-mono"
                           />
                         </label>
 
@@ -777,11 +815,16 @@ return (
                             <select
                               value={draft.vocalLanguage ?? 'en'}
                               onChange={(event) => updateDraft(concept.id, { vocalLanguage: event.target.value })}
-                              className="mt-1 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white"
+                              className="mt-1 px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
                             >
-                              {LANGUAGES.map((language) => (
-                                <option key={language} value={language}>
-                                  {language}
+                              {!languageChoices.some((choice) => choice.value === (draft.vocalLanguage ?? 'en')) && (
+                                <option value={draft.vocalLanguage ?? 'en'}>
+                                  {draft.vocalLanguage ?? 'en'} - current value
+                                </option>
+                              )}
+                              {languageChoices.map((choice) => (
+                                <option key={choice.value} value={choice.value}>
+                                  {choice.label}
                                 </option>
                               ))}
                             </select>
@@ -822,6 +865,24 @@ return (
                           if (!arc) return null;
                           return (
                             <div className="rounded-xl bg-zinc-100 dark:bg-white/5 p-3 space-y-2">
+                              {typeof concept.params?.lyricSubjectLabel === 'string' && (
+                                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                  About:{' '}
+                                  <span className="text-zinc-900 dark:text-white">
+                                    {String(concept.params.lyricSubjectLabel)}
+                                  </span>
+                                  {typeof concept.params?.lyricSubjectSource === 'string'
+                                    ? ` (${String(concept.params.lyricSubjectSource)}${
+                                        concept.params?.lyricSubjectMatched
+                                          ? `: ${String(concept.params.lyricSubjectMatched)}`
+                                          : ''
+                                      })`
+                                    : ''}
+                                  {concept.params?.lyricSubjectRealised === false
+                                    ? ' - general material only'
+                                    : ''}
+                                </p>
+                              )}
                               <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                                 Lyric arc (the structure the scaffold was written to)
                               </p>
@@ -867,7 +928,7 @@ return (
                             rows={8}
                             value={draft.lyrics ?? ''}
                             onChange={(event) => updateDraft(concept.id, { lyrics: event.target.value })}
-                            className="mt-1 w-full px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-xs text-zinc-900 dark:text-white font-mono"
+                            className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white font-mono"
                           />
                         </label>
                       </div>
@@ -904,15 +965,15 @@ return (
                       {run.status}
                     </span>
                     <span className="font-mono text-[11px]">{shortId(run.id)}</span>
-                    <span className="text-[11px] text-zinc-500">
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       fit {score(run.marketFit)} - novelty {score(run.novelty)} - composite {score(run.composite)}
                       {run.humanScore !== null ? ` - human ${run.humanScore.toFixed(2)}` : ' - unrated'}
                     </span>
                     {(run.status === 'running' || run.status === 'queued') && run.stage && (
-                      <span className="text-[11px] text-amber-400">{run.stage}</span>
+                      <span className="text-[11px] text-amber-700 dark:text-amber-400">{run.stage}</span>
                     )}
                     {run.verdict && run.verdict !== 'unrated' && (
-                      <span className="px-2 py-0.5 rounded-full text-[11px] bg-purple-500/15 text-purple-300">
+                      <span className="px-2 py-0.5 rounded-full text-[11px] bg-purple-500/15 text-purple-700 dark:text-purple-300">
                         {run.verdict}
                       </span>
                     )}
@@ -933,7 +994,7 @@ return (
                       placeholder="notes"
                       value={rateNotes[run.id] ?? ''}
                       onChange={(event) => setRateNotes((current) => ({ ...current, [run.id]: event.target.value }))}
-                      className="w-24 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-white/5 border border-zinc-300 dark:border-white/10 text-[11px] text-zinc-900 dark:text-white"
+                      className="w-24 px-2 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-[11px] text-zinc-900 dark:text-white"
                     />
                   </div>
                 </div>
@@ -950,7 +1011,7 @@ return (
 
                 {run.breakdown?.components && (
                   <details className="mt-2">
-                    <summary className="text-[11px] text-zinc-500 cursor-pointer">score breakdown</summary>
+                    <summary className="text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">score breakdown</summary>
                     <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-zinc-400">
                       {Object.entries(run.breakdown.components).map(([key, value]) => (
                         <span key={key} className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-white/5">
@@ -961,7 +1022,7 @@ return (
                     {run.breakdown.notes && (
                       <ul className="mt-1 space-y-0.5">
                         {run.breakdown.notes.map((note) => (
-                          <li key={note} className="text-[11px] text-zinc-500">
+                          <li key={note} className="text-[11px] text-zinc-500 dark:text-zinc-400">
                             {note}
                           </li>
                         ))}

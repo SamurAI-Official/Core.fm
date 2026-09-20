@@ -241,6 +241,10 @@ function AppContent() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    // Keep native widgets (select popups, number spinners, audio controls) in the same
+    // theme as the page. The CSS rule in index.html does this too; setting it here as
+    // well means a theme switch applies immediately, mid-render, without a reload.
+    document.documentElement.style.colorScheme = theme;
   }, [theme]);
 
   const toggleTheme = () => {

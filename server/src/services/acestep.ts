@@ -423,35 +423,75 @@ export function resetClient(): void {
 // Job queue
 // ---------------------------------------------------------------------------
 
+/**
+ * Upper bound on a single generation. A render takes ~2-4 minutes on this GPU, so
+ * this is generous by design. It exists because `client.predict()` against a
+ * crashed engine never settles: that latched `isProcessingQueue` to true forever
+ * and left every later job reporting 'queued' while the engine sat idle.
+ */
+const GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Rejects if `promise` has not settled within `ms`; the timer is always cleared. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 async function processQueue(): Promise<void> {
   if (isProcessingQueue) return;
   isProcessingQueue = true;
 
-  while (jobQueue.length > 0) {
-    const jobId = jobQueue[0];
-    const job = activeJobs.get(jobId);
+  try {
+    while (jobQueue.length > 0) {
+      const jobId = jobQueue[0];
+      const job = activeJobs.get(jobId);
 
-    if (job && job.status === 'queued') {
       try {
-        await processGeneration(jobId, job.params, job);
+        if (job && job.status === 'queued') {
+          await withTimeout(
+            processGeneration(jobId, job.params, job),
+            GENERATION_TIMEOUT_MS,
+            `Job ${jobId}`,
+          );
+        }
       } catch (error) {
+        const message = (error as Error)?.message || 'unknown error';
         console.error(`Queue processing error for ${jobId}:`, error);
+        // Never leave a job in a non-terminal state: a wedged job must surface as
+        // 'failed', otherwise getJobStatus() reports 'queued'/'running' forever.
+        if (job) {
+          job.status = 'failed';
+          job.error = job.error ?? message;
+        }
+        // The previous Gradio call may still be pending against a dead engine, so
+        // drop the client instead of reusing a connection that will never settle.
+        resetGradioClient();
+      } finally {
+        // Remove from queue after processing (whether success, failure or timeout)
+        jobQueue.shift();
       }
+
+      // Update queue positions for remaining jobs
+      jobQueue.forEach((id, index) => {
+        const queuedJob = activeJobs.get(id);
+        if (queuedJob) {
+          queuedJob.queuePosition = index + 1;
+        }
+      });
     }
-
-    // Remove from queue after processing (whether success or failure)
-    jobQueue.shift();
-
-    // Update queue positions for remaining jobs
-    jobQueue.forEach((id, index) => {
-      const queuedJob = activeJobs.get(id);
-      if (queuedJob) {
-        queuedJob.queuePosition = index + 1;
-      }
-    });
+  } finally {
+    // Released unconditionally: a throw inside the loop must not strand the latch,
+    // which is what previously turned one dead engine into a permanently stuck queue.
+    isProcessingQueue = false;
   }
-
-  isProcessingQueue = false;
 }
 
 // Submit generation job to queue

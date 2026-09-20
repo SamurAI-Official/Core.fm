@@ -66,6 +66,14 @@
 
       :root {
         --breakpoint-mobile: 768px;
+        /* Native widgets - select popups, number spinners, checkboxes and <audio>
+           controls - follow the theme instead of staying light on a dark page.
+           Without this, `dark:` styling on an input leaves its popup unreadable. */
+        color-scheme: light;
+      }
+
+      .dark {
+        color-scheme: dark;
       }
 
       body {
