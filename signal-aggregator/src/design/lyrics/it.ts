@@ -13,7 +13,47 @@
  *  - time expressions carry their own copula so "È mezzanotte" and "Sono le quattro"
  *    are both correct.
  */
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material.
+ *
+ * `selves` completes "Sono ...", so every entry is adverbial or an already-complete
+ * phrase - no adjective agreement with a singer whose gender is unknown ("lontano da
+ * casa" is the adverbial use, which does not inflect). Closing lines are complete
+ * short sentences. Uncovered stages fall back to the general bank.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'family-and-distance': {
+    adlib: 'il tavolo di cucina',
+    selves: ['lontano da casa', 'a casa per il weekend', 'al telefono la domenica'],
+    banks: { conclusion: ['Qualcuno ha lasciato la luce', 'So ancora la strada'] },
+  },
+  'memory-and-loss': {
+    adlib: 'una foto sbiadita',
+    selves: ['ancora a contare gli anni', 'dal lato del silenzio', 'ancora qui'],
+    banks: { conclusion: ['Niente si è cancellato', 'Mi ricordo ancora il nome'] },
+  },
+  'leaving-and-staying': {
+    adlib: 'la luce sul pianerottolo',
+    selves: ['ancora qui', 'tra due addii', 'nello stesso posto'],
+    banks: { conclusion: ['Non abbiamo deciso niente', 'Non è finita qui'] },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 /** Time expressions carry their own copula ("È mezzanotte" / "Sono le quattro"). */
 const TIMES: Array<{ lead: string; text: string }> = [
@@ -140,6 +180,7 @@ export const italianPack: LanguagePack = {
   nativeLabel: 'Italiano',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -149,7 +190,7 @@ export const italianPack: LanguagePack = {
   pickQualifier: (rng) => fromBank(rng, QUALIFIERS),
 
   // Chart terms are English/Latin tokens, so the intro uses the hook instead.
-  introLine: (ctx) => `(${ctx.hook})`,
+  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
@@ -163,7 +204,7 @@ export const italianPack: LanguagePack = {
       return takeLines(
         [
           `${time.lead} ${time.text} in ${place}`,
-          `Sono ${fromBank(ctx.rng, SELVES, used)}`,
+          `Sono ${fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used)}`,
           sentenceCase(fromBank(ctx.rng, DETAILS, used)),
         ],
         count,
@@ -238,7 +279,7 @@ export const italianPack: LanguagePack = {
       const time = TIMES[Math.floor(ctx.rng() * TIMES.length)] ?? TIMES[0];
       return takeLines(
         [
-          fromBank(ctx.rng, UNRESOLVED, used),
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED), used),
           `Da qualche parte ${time.lead.toLowerCase()} ancora ${time.text}`,
         ],
         count,

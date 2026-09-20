@@ -13,7 +13,47 @@
  *  - time expressions carry their own lead so "Es medianoche" and "Son las cuatro"
  *    are both correct.
  */
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material.
+ *
+ * `selves` completes "Estoy ...", so every entry is invariable (adverbial, not
+ * adjectival) and needs no gender agreement, exactly like `SELVES`; the closing
+ * lines are complete short sentences. Any stage a subject omits falls back to the
+ * general bank, so coverage can be deepened one subject at a time.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'leaving-and-staying': {
+    adlib: 'la luz del portal',
+    selves: ['todavía aquí', 'en el mismo sitio', 'entre dos despedidas'],
+    banks: { conclusion: ['No decidimos nada', 'Esto no se ha acabado'] },
+  },
+  'celebration-and-hustle': {
+    adlib: 'la última canción',
+    selves: ['de paso', 'del lado del silencio', 'todavía aquí'],
+    banks: { conclusion: ['La fiesta sigue', 'Mañana cuenta igual'] },
+  },
+  'family-and-distance': {
+    adlib: 'la mesa de la cocina',
+    selves: ['entre dos despedidas', 'en el mismo sitio', 'de paso'],
+    banks: { conclusion: ['Alguien dejó la luz puesta', 'Sé el camino de vuelta'] },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 /** Time expressions carry their own copula ("Es medianoche" / "Son las cuatro"). */
 const TIMES: Array<{ lead: string; text: string }> = [
@@ -143,6 +183,7 @@ export const spanishPack: LanguagePack = {
   nativeLabel: 'Español',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -152,7 +193,7 @@ export const spanishPack: LanguagePack = {
   pickQualifier: (rng) => fromBank(rng, QUALIFIERS),
 
   // Chart terms are English/Latin tokens, so the intro uses the hook instead.
-  introLine: (ctx) => `(${ctx.hook})`,
+  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
@@ -167,7 +208,7 @@ export const spanishPack: LanguagePack = {
       return takeLines(
         [
           `${time.lead} ${time.text} en ${place}`,
-          `Estoy ${fromBank(ctx.rng, SELVES, used)}`,
+          `Estoy ${fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used)}`,
           sentenceCase(fromBank(ctx.rng, DETAILS, used)),
         ],
         count,
@@ -243,7 +284,7 @@ export const spanishPack: LanguagePack = {
       const time = TIMES[Math.floor(ctx.rng() * TIMES.length)] ?? TIMES[0];
       return takeLines(
         [
-          fromBank(ctx.rng, UNRESOLVED, used),
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED), used),
           `En algún lugar ${time.lead.toLowerCase()} todavía ${time.text}`,
         ],
         count,

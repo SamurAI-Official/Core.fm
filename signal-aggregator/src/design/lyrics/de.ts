@@ -16,7 +16,47 @@
  *  - predicate adjectives need no agreement ("Ich bin ruhig"), unlike attributive
  *    ones, so self-descriptions stay short and safe.
  */
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material.
+ *
+ * `selves` completes "Ich bin ...", so every entry is a predicate phrase with no
+ * agreement requirement; the closing lines keep the shape of `UNRESOLVED` - short
+ * complete sentences with the verb in second position. Subjects that omit a stage
+ * fall back to the general bank, so coverage can be deepened one subject at a time.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'starting-over': {
+    adlib: 'ein Schlüssel, der nicht mehr passt',
+    selves: ['schon halb weg', 'neu hier', 'unterwegs'],
+    banks: { conclusion: ['Das ist nicht das Ende', 'Morgen zählt als Anfang'] },
+  },
+  'city-and-work': {
+    adlib: 'die Spätschicht',
+    selves: ['noch auf Nachtschicht', 'zwischen zwei Schichten', 'neu in dieser Stadt'],
+    banks: { conclusion: ['Die Miete kommt am Ersten', 'Niemand hat das je versprochen'] },
+  },
+  'memory-and-loss': {
+    adlib: 'ein verblichenes Foto',
+    selves: ['noch am Zählen', 'auf der stillen Seite', 'noch hier'],
+    banks: { conclusion: ['Nichts davon ist weg', 'Jemand hat das Licht gelassen'] },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 /** Bare time nouns: "Es ist Mitternacht" reads correctly without an article. */
 const TIMES = ['Mitternacht', 'Feierabend', 'Sonntagnacht', 'vier Uhr morgens', 'Saisonende', 'die letzte Runde'];
@@ -167,6 +207,7 @@ export const germanPack: LanguagePack = {
   nativeLabel: 'Deutsch',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   buildScale: (rng) => ({ subject: fromBank(rng, WIDE_CLAUSES), verb: '' }),
@@ -176,7 +217,7 @@ export const germanPack: LanguagePack = {
   pickQualifier: (rng) => fromBank(rng, QUALIFIERS),
 
   // Chart terms are foreign tokens here, so the intro uses the hook instead.
-  introLine: (ctx) => `(${ctx.hook})`,
+  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
@@ -186,7 +227,7 @@ export const germanPack: LanguagePack = {
       const time = fromBank(ctx.rng, TIMES, used);
       const useOn = ctx.rng() < 0.5;
       const place = fromBank(ctx.rng, useOn ? ON_PLACES : IN_PLACES, used);
-      const self = fromBank(ctx.rng, SELVES, used);
+      const self = fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used);
       const detail = fromBank(ctx.rng, DETAILS, used);
       return takeLines(
         [
@@ -269,7 +310,10 @@ export const germanPack: LanguagePack = {
         );
       }
       return takeLines(
-        [fromBank(ctx.rng, UNRESOLVED, used), `Irgendwo ist es noch ${fromBank(ctx.rng, TIMES, used)}`],
+        [
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED), used),
+          `Irgendwo ist es noch ${fromBank(ctx.rng, TIMES, used)}`,
+        ],
         count,
       );
     },

@@ -12,6 +12,7 @@ import { runMigrations } from '../db/migrate.js';
 import { marketInfo } from '../markets.js';
 import { briefConfidence, latestBrief } from '../briefs/build.js';
 import { collectSignals } from '../sources/collect.js';
+import { availableLanguages, pendingLanguages } from '../design/lyrics/index.js';
 import { getConcept, listConcepts, updateConceptFields, type ConceptPatch } from '../design/store.js';
 import { designConcepts } from '../design/designer.js';
 import { getRun, listRuns, type RunRecord } from '../loops/store.js';
@@ -256,6 +257,22 @@ export function createApp(): express.Express {
   app.get('/api/markets', (_req: Request, res: Response) => {
     res.json({
       markets: config.markets.map((market) => ({ market, ...marketInfo(market) })),
+    });
+  });
+
+  /**
+   * Language options for the UI's vocal-language dropdown.
+   *
+   * Served from the pack registry rather than hard-coded in the client: the list of
+   * languages a concept may be set to and the list of languages the writer can actually
+   * write are the same thing, and they had already drifted (a `ru` pack existed while
+   * `ru` was missing from the dropdown). `languages` are the packs; `pending` are known
+   * codes without a pack, which fall back to English and say so.
+   */
+  app.get('/api/languages', (_req: Request, res: Response) => {
+    res.json({
+      languages: availableLanguages(),
+      pending: pendingLanguages(),
     });
   });
 

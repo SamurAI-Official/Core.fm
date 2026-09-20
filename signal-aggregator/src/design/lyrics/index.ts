@@ -12,6 +12,9 @@ import { germanPack } from './de.js';
 import { spanishPack } from './es.js';
 import { italianPack } from './it.js';
 import { portuguesePack } from './pt.js';
+import { russianPack } from './ru.js';
+import { koreanPack } from './ko.js';
+import { chinesePack } from './zh.js';
 import type { LanguagePack } from './types.js';
 
 const PACKS: Record<string, LanguagePack> = {
@@ -21,6 +24,9 @@ const PACKS: Record<string, LanguagePack> = {
   es: spanishPack,
   it: italianPack,
   pt: portuguesePack,
+  ru: russianPack,
+  ko: koreanPack,
+  zh: chinesePack,
 };
 
 /**
@@ -28,7 +34,7 @@ const PACKS: Record<string, LanguagePack> = {
  * message than "unknown language" - the mechanism is identical either way.
  */
 const PENDING = new Set([
-  'ja', 'ko', 'zh', 'ru', 'hi', 'nl', 'uk', 'ar', 'tr', 'id', 'ms',
+  'ja', 'hi', 'nl', 'uk', 'ar', 'tr', 'id', 'ms',
   'th', 'vi', 'tl', 'sv', 'no', 'da', 'fi', 'pl', 'el', 'ur', 'he', 'sw', 'yo', 'ig', 'zu',
 ]);
 
@@ -67,8 +73,8 @@ export function resolvePack(requested: string): PackResolution {
     requested: normalized,
     fallback: true,
     reason: PENDING.has(base)
-      ? `no ${normalized} lyric pack yet (writing is English-only for now)`
-      : `unsupported language '${normalized}'`,
+      ? `no ${normalized} lyric pack yet (falling back to ${englishPack.label})`
+      : `unsupported language '${normalized}' (falling back to ${englishPack.label})`,
   };
 }
 
@@ -91,6 +97,11 @@ export function availableLanguages(): Array<{
 
 export function isPendingLanguage(code: string): boolean {
   return PENDING.has(normalizeCode(code).split('-')[0]);
+}
+
+/** Known codes without a pack yet, for docs and the UI's language options. */
+export function pendingLanguages(): string[] {
+  return Array.from(PENDING).sort();
 }
 
 export type { LanguagePack };

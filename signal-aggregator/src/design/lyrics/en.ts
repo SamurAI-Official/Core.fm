@@ -32,7 +32,98 @@ import {
   WIDE_SINGULAR,
 } from '../lyricBanks.js';
 import { metaphorsFor } from '../imagery.js';
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack, type LyricContext } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type LyricContext,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material: what this pack writes when a song is about a specific thing.
+ *
+ * Every entry has to read correctly in the one template that consumes it, exactly as
+ * the general banks do - subjects must not become a second, unverified way for a
+ * phrase to land in a grammatical slot. `selves` completes "I'm ...", `uncertainty`
+ * completes "I keep ...", `agency` completes "So I ...", `conclusion` is a standalone
+ * closing line, and `perspective` follows the same shape as `PERSPECTIVE_DETAILS`
+ * (readable alone and after "the east side, ...").
+ *
+ * `leaving-and-staying` is written to the same subject the general banks already
+ * carry, so it reads as a deliberate choice rather than a leftover.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'leaving-and-staying': {
+    adlib: 'the porch light again',
+    selves: ['still here at closing', 'no good at leaving', 'halfway out the door'],
+    banks: {
+      perspective: ['same kitchen, different year', 'nobody locked the door', 'the sign still flickers'],
+      uncertainty: ['second-guessing the goodbye', 'rehearsing the leaving speech'],
+      agency: ['say it first', 'take the long way'],
+      conclusion: ['We never did decide', 'This is not the end of it'],
+    },
+  },
+  'city-and-work': {
+    adlib: 'the late shift',
+    selves: ['new in this city', 'thirty and tired', 'two jobs in'],
+    banks: {
+      perspective: ['the kitchen light on at five', 'the rent due on the first', 'the platform filling up'],
+      uncertainty: ['checking the group chat', 'counting what is left', 'rewriting the resume'],
+      agency: ['take the early shift', 'learn the hard way', 'pay the price'],
+      conclusion: ['Same city, different job', 'Nobody said it would be fair'],
+    },
+  },
+  'family-and-distance': {
+    adlib: 'the kitchen table',
+    selves: ['the one who moved away', 'home for the weekend', 'on the phone every Sunday'],
+    banks: {
+      perspective: ['the kitchen radio low', 'a chair nobody sits in', 'plates chipped at the edge'],
+      uncertainty: ['forgetting the birthdays', 'meaning to call back', 'waiting for the right time'],
+      agency: ['take the train home', 'ask for more', 'keep my word'],
+      conclusion: ['Somebody left the light on', 'I still know the way back'],
+    },
+  },
+  'celebration-and-hustle': {
+    adlib: 'the last song of the night',
+    selves: ['still on the floor', 'the last one dancing', 'louder than the room'],
+    banks: {
+      perspective: ['the speakers still ringing', 'the same three songs again', 'a floor that will not quit'],
+      uncertainty: ['counting the takings', 'betting on tomorrow', 'starting again on Monday'],
+      agency: ['turn it up', 'call it ours', 'count it twice'],
+      conclusion: ['And the night is not finished', 'We are still here anyway'],
+    },
+  },
+  'memory-and-loss': {
+    adlib: 'a photograph, faded',
+    selves: ['still counting the years', 'the one who kept it', 'here in the quiet'],
+    banks: {
+      perspective: ['letters stacked by the door', 'a coat that still smells of smoke', 'the garden gone quiet'],
+      uncertainty: ['reading the messages back', 'keeping the old number', 'putting it off for years'],
+      agency: ['say it out loud', 'let it go', 'stop waiting'],
+      conclusion: ['Maybe that is enough', 'Somewhere the light is still on'],
+    },
+  },
+  'starting-over': {
+    adlib: 'a key that no longer fits',
+    selves: ['new here and fine with it', 'packed and ready', 'already halfway gone'],
+    banks: {
+      perspective: ['a suitcase by the door', 'a map folded the wrong way', 'the first morning somewhere else'],
+      uncertainty: ['checking the map again', 'learning the new streets', 'rewriting the ending'],
+      agency: ['call it off', 'walk out clean', 'take the wheel'],
+      conclusion: ['This is not where it ends', 'Tomorrow counts as a start'],
+    },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 export const englishPack: LanguagePack = {
   code: 'en',
@@ -40,6 +131,7 @@ export const englishPack: LanguagePack = {
   nativeLabel: 'English',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   // Hook subjects are restricted to plural/first-person so the base-form verb
   // phrases always agree ("Late-night drive say it first" was the original bug).
@@ -57,7 +149,9 @@ export const englishPack: LanguagePack = {
   pickContrast: (rng) => pairFromBank(rng, CONTRAST_ADJECTIVES, new Set()),
   pickQualifier: (rng) => fromBank(rng, REFRAME_QUALIFIERS),
 
-  introLine: (ctx) => `(${ctx.topicWord ?? ctx.hook})`,
+  // The market's own chart word wins when one is usable, then the subject's ad-lib,
+  // then the hook: an intro should say something about this song, not just repeat it.
+  introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => metaphorsFor(family),
@@ -69,8 +163,8 @@ export const englishPack: LanguagePack = {
       // rented room" is structurally impossible.
       const useOn = ctx.rng() < 0.5;
       const place = fromBank(ctx.rng, useOn ? ON_PLACES : IN_PLACES, used);
-      const self = fromBank(ctx.rng, SELVES, used);
-      const detail = fromBank(ctx.rng, PERSPECTIVE_DETAILS, used);
+      const self = fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used);
+      const detail = fromBank(ctx.rng, bank(ctx, 'perspective', PERSPECTIVE_DETAILS), used);
       return takeLines(
         [
           `It's ${time} ${useOn ? 'on' : 'in'} ${place}`,
@@ -88,7 +182,7 @@ export const englishPack: LanguagePack = {
           `I don't know if I ${fromBank(ctx.rng, UNCERTAIN_ACTIONS, used)}`,
           `Maybe we ${fromBank(ctx.rng, UNCERTAIN_CLAUSES, used)}`,
           `Nothing here is ${fromBank(ctx.rng, UNCERTAIN_ADJECTIVES, used)}`,
-          `I keep ${fromBank(ctx.rng, GERUNDS, used)}`,
+          `I keep ${fromBank(ctx.rng, bank(ctx, 'uncertainty', GERUNDS), used)}`,
         ],
         count,
       );
@@ -97,7 +191,7 @@ export const englishPack: LanguagePack = {
     agency: (count, ctx, used) => {
       return takeLines(
         [
-          `So I ${fromBank(ctx.rng, AGENCY_ACTIONS, used)}`,
+          `So I ${fromBank(ctx.rng, bank(ctx, 'agency', AGENCY_ACTIONS), used)}`,
           `I'm gonna ${fromBank(ctx.rng, AGENCY_PLANS, used)}`,
           `This time I ${fromBank(ctx.rng, AGENCY_CHOICES, used)}`,
           `I'm done ${fromBank(ctx.rng, DONE_GERUNDS, used)}`,
@@ -160,7 +254,10 @@ export const englishPack: LanguagePack = {
         return Array.from({ length: Math.min(count, 2) }, () => `(${englishPack.reframe(ctx.hook, ctx.qualifier)})`);
       }
       return takeLines(
-        [fromBank(ctx.rng, UNRESOLVED_LINES, used), `Somewhere it's still ${fromBank(ctx.rng, TIMES, used)}`],
+        [
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED_LINES), used),
+          `Somewhere it's still ${fromBank(ctx.rng, TIMES, used)}`,
+        ],
         count,
       );
     },

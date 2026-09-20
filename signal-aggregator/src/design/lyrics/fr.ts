@@ -14,7 +14,49 @@
  *    reste éveillée") instead of composing adjective + noun at runtime, which is
  *    impossible to do correctly without knowing each noun's gender.
  */
-import { fromBank, pairFromBank, sentenceCase, takeLines, type LanguagePack } from './types.js';
+import {
+  bankPicker,
+  fromBank,
+  pairFromBank,
+  sentenceCase,
+  subjectAdlib,
+  subjectIdsOf,
+  subjectSelves,
+  takeLines,
+  type LanguagePack,
+  type SubjectTable,
+} from './types.js';
+
+/**
+ * Subject material.
+ *
+ * Fragment-level on purpose: the ad-lib is a noun phrase, `selves` completes
+ * "Je suis ..." (so it stays adverbial, the way `SELVES` is), and the closing lines
+ * keep the shape of `UNRESOLVED` - complete, short sentences. Deeper coverage
+ * (uncertainty, agency) can be added the same way once each line has been checked by
+ * a speaker, which is why partial coverage is safe: any slot a subject omits falls
+ * back to the general bank.
+ */
+const SUBJECT_MATERIAL: SubjectTable = {
+  'leaving-and-staying': {
+    adlib: 'la lumière du palier',
+    selves: ['encore là', 'à la même place', 'entre deux départs'],
+    banks: { conclusion: ["On n'a rien décidé", "Ce n'est pas la fin"] },
+  },
+  'city-and-work': {
+    adlib: 'le dernier service',
+    selves: ['encore de nuit', 'entre deux services', 'ici depuis peu'],
+    banks: { conclusion: ['Le loyer tombe le premier', "Personne ne l'a dit"] },
+  },
+  'memory-and-loss': {
+    adlib: 'une photo fanée',
+    selves: ['du côté du silence', 'à la même place', 'encore là'],
+    banks: { conclusion: ["Rien ne s'est effacé", "Quelqu'un a laissé la lumière"] },
+  },
+};
+
+/** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
+const bank = bankPicker(SUBJECT_MATERIAL);
 
 /** Time expressions carry their own lead so "il est minuit" / "c'est l'aube" both work. */
 const TIMES: Array<{ lead: string; text: string }> = [
@@ -154,6 +196,7 @@ export const frenchPack: LanguagePack = {
   nativeLabel: 'Français',
   script: 'latin',
   complete: true,
+  subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
 
@@ -166,7 +209,7 @@ export const frenchPack: LanguagePack = {
 
   // Chart terms are English/Latin tokens, so this pack uses the hook instead of
   // injecting a foreign word into the intro ad-lib.
-  introLine: (ctx) => `(${ctx.hook})`,
+  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: (hook, qualifier) => `${hook}, ${qualifier}`,
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
@@ -176,7 +219,7 @@ export const frenchPack: LanguagePack = {
       const time = TIMES[Math.floor(ctx.rng() * TIMES.length)] ?? TIMES[0];
       const useOn = ctx.rng() < 0.5;
       const place = fromBank(ctx.rng, useOn ? ON_PLACES : IN_PLACES, used);
-      const self = fromBank(ctx.rng, SELVES, used);
+      const self = fromBank(ctx.rng, subjectSelves(SUBJECT_MATERIAL, ctx) ?? SELVES, used);
       const detail = fromBank(ctx.rng, DETAILS, used);
       return takeLines(
         [
@@ -258,7 +301,7 @@ export const frenchPack: LanguagePack = {
       const time = TIMES[Math.floor(ctx.rng() * TIMES.length)] ?? TIMES[0];
       return takeLines(
         [
-          fromBank(ctx.rng, UNRESOLVED, used),
+          fromBank(ctx.rng, bank(ctx, 'conclusion', UNRESOLVED), used),
           `Quelque part, ${time.lead.toLowerCase()} encore ${time.text}`,
         ],
         count,
