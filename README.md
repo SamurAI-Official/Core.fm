@@ -168,6 +168,88 @@ lyrics, and that chart words drive it:
 npm run test:subjects
 ```
 
+## How a song is built (writing styles)
+
+The seven-stage arc used to be the *only* structure, so every market, genre and subject was
+told the same way. A **writing agent** is a named way of building a song: twenty are
+specified from the songwriting brief, three are implemented, and styles are added rather
+than swapped in - `arc` remains the default, so no existing concept changes shape.
+
+```ts
+interface WritingAgent {
+  id, name, engine[], blurb          // engine = the chain, e.g. ['question','partial answer',...]
+  needs: PrimitiveId[]               // whole-line material the style requires from a pack
+  repetition: 'fault' | 'device'     // is a repeated line a defect here, or the technique?
+  fits?({ genre, energy }): number   // affinity weight for selection
+  plan({ energy, rng }): AgentPlan   // sections, roles, line budgets, variants
+  write(section, ctx, pack, used)    // arrangement -> lines, through the pack's banks
+  report?(ctx, plan, pack)           // what this style did, stored on the concept
+}
+```
+
+| Style | Engine | Status |
+|---|---|---|
+| `arc` Narrative arc | perspective → uncertainty → agency → contradiction → concrete metaphor → scale → conclusion | **implemented** (default) |
+| `refrain-mutation` Refrain With Semantic Mutation | same phrase → new context → new meaning → new context → transformed meaning | **implemented** |
+| `question-answer` Question → Answer → Bigger Question | question → partial answer → consequence → new question | **implemented** |
+| `hook-variation-payoff` | claim → repetition → contradiction → reinterpretation → return | planned |
+| `specific-universal` | tiny physical detail → emotional implication → larger human truth | planned |
+| `promise-violation` | expectation → anticipation → violation → recognition | planned |
+| `confession-denial` | reveal → retreat → deeper reveal | planned |
+| `image-meaning` | concrete image → image → pattern → emotional realisation | planned |
+| `character-choice` | person → desire → dilemma → choice → consequence | planned |
+| `escalating-stakes` | small consequence → larger → irreversible | planned |
+| `false-resolution` | conflict → apparent resolution → destabilising detail → new conflict | planned |
+| `call-response` | statement → response → repetition → variation → escalation | planned |
+| `slogan-story` | simple thesis → examples → contradiction → expanded thesis | planned |
+| `countdown` | deadline → progression → decreasing time → decision | planned |
+| `thought-actually` | belief → evidence → contradiction → revised belief | planned |
+| `object-symbol` | object → repetition → association → transformation | planned |
+| `everybody-says` | common belief → personal evidence → contradiction → personal conclusion | planned |
+| `groove-return` | pattern → disruption → anticipation → return | planned |
+| `one-line-premise` | compressed premise → unanswered implication → expansion | planned |
+| `circular` | opening image → journey → revelation → return to the opening image | planned |
+| `missing-character` | evidence → omission → listener inference → realisation | planned |
+
+**Agents arrange; packs supply the words.** A style asks for *roles* and *primitives*, never
+for words, so Korean and French grammar stay where they are verified.
+
+- **Primitives are whole lines.** `render` banks complete a template the pack owns; a
+  primitive (`question`, `answer`, `claim`, `reversal`, `implication`, `universal`, `ladder`,
+  `fragment`) is placed by the agent, so an entry must read correctly standing alone.
+  Coverage is derived from the table - a primitive exists when it has entries.
+- **A style is never chosen for a language that cannot write it.** Selection is
+  coverage-filtered, so a style's `needs` gate it exactly as `subjectCoverage` gates a
+  subject. Forcing one anyway (the UI's rewrite path) is honoured and *reported* rather than
+  silently substituted: `params.lyricAgentRealised: false`, and the style degrades onto the
+  pack's general material instead of crashing.
+- **Repetition is a fault in most styles and the technique in some.** `validate.ts` takes a
+  `repetitionPolicy`, so a refrain is not scored as a defect; the count is still reported
+  (`repeatedLines`) and the gate asserts the device was really used.
+- **Styles rotate.** `designConcepts` reads a market's previous styles back out of the store
+  (`usedAgents`), weights the draw by `fits()`, and records the source
+  (`rotation` | `affinity` | `seeded`). A batch of designs now varies in *how* it is told as
+  well as in what it is about.
+- **Everything is provenance**: `params.lyricAgent`, `…Name`, `…Engine`, `…Blurb`,
+  `…Source`, `…Realised`, `…Summary`, `…Report` and `lyricStructure` (section → roles). The
+  Trends augmentation panel renders a style, its engine chain and its shape for every style
+  without knowing any style in particular, and `POST /api/concepts/:id/reroll-lyrics`
+  rewrites one design with a chosen style - without a design run or a render.
+
+Check the styles themselves - that each engine is really in its output, not just in its name:
+
+```bash
+npm run test:agents              # per style x per pack: bars + engine assertions + rotation
+npx tsx scripts/agent-spread.ts --print   # the same, with a sample song per style
+npx tsx scripts/lyric-preview.ts 42 --agent refrain-mutation
+```
+
+Two limits, stated plainly: `question-answer` guarantees *distinct* questions that
+*lengthen* across the song, which is a proxy for rising stakes - semantic escalation needs
+the `ladder` primitive. And two engines (`promise-violation`, `groove-return`) are half
+musical: the lyrical half is ours, the melody side is carried into the style prompt as a hint
+and ultimately belongs to the engine.
+
 ## Languages and singability
 
 Lyrics are written by a **language pack** (`src/design/lyrics/`) that owns both its
@@ -264,7 +346,13 @@ the pipeline or a database:
 - `npm run test:subjects` — every pack declares at least three subjects it can write, a
   run rotates through them, forcing a different subject changes the lyrics, a chart word
   in the pack's own script is usable as an ad-lib and a Latin one is rejected for it, and
-  chart words actually drive the subject (`scripts/subject-spread.ts`).
+  chart words actually drive the subject (`scripts/subject-spread.ts`);
+- `npm run test:agents` — per writing style and per pack: the shared bars *plus* the
+  engine's own claims asserted against the output (a refrain repeated and byte-identical
+  across its restatements, questions drawn from the pack's bank without repeats and
+  lengthening across the song, rotation never handing a pack a style it cannot write, a
+  forced style degrading and saying so), and a variety check across seeds
+  (`scripts/agent-spread.ts`; `--print` adds a sample song per style).
 
 ### Two limits, stated plainly
 
@@ -475,7 +563,12 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `POST /api/collect` · `/api/design` · `/api/cycle` | Drive the loop |
 | `GET /api/forecast` · `/api/forecast/:cc` | Forecasts (+ the CLI's text form verbatim, caveat included) |
 | `GET /api/schedule` · `POST /api/schedule/run` | Collector state; run one pass now |
+| `GET /api/concepts`, `GET /api/concepts/:id`, `PATCH /api/concepts/:id` | List, read and edit a design |
+| `GET /api/agents` · `GET /api/languages` | Writing styles and language options, straight from the registries (with the packs that can realise each style) |
+| `POST /api/concepts/:id/reroll-lyrics` | Rewrite one design's lyrics with a chosen writing style - no design run, no render |
+| `POST /api/concepts/:id/run` | Render a design through the pipeline |
 | `POST /api/ratings` | `{ runId, score, notes? }` → re-score + learn |
+
 
 ## Files
 
@@ -484,9 +577,11 @@ src/
   analysis/   genres.ts  tempo.ts  metrics.ts  series.ts   normalization + evidence + time series
   sources/    apple.ts deezer.ts itunes.ts store.ts collect.ts
   briefs/     build.ts types.ts                    market profiles
-  design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts
-  design/lyrics/  index.ts types.ts subjects.ts en.ts fr.ts de.ts es.ts it.ts pt.ts ru.ts ko.ts zh.ts validate.ts
-                  language packs, the subject catalogue, and the singability gate
+  design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts provenance.ts
+  design/agents/   types.ts registry.ts arc.ts refrain-mutation.ts question-answer.ts
+                   writing styles: arrangement + selection, one file per style
+  design/lyrics/  index.ts types.ts subjects.ts primitives.ts en.ts fr.ts de.ts es.ts it.ts pt.ts ru.ts ko.ts zh.ts validate.ts
+                  language packs, the subject catalogue, pack primitives, the singability gate
   forecast/   forecast.ts                          damped projections with sample-depth confidence
   schedule/   scheduler.ts                         periodic collection (history for forecasting)
   pipeline/   client.ts submit.ts run.ts            ACE-Step integration

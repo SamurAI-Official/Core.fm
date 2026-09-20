@@ -18,6 +18,8 @@ export interface StylePromptInput {
   instrumental: boolean;
   /** Tags earned by previous scoring cycles for this market. */
   learnedTags?: string[];
+  /** Production intent the writing style implies (a breakdown and return, a spoken intro). */
+  styleHints?: string[];
   rng: () => number;
 }
 
@@ -64,6 +66,12 @@ export function composeStylePrompt(input: StylePromptInput): string {
 
   if (input.learnedTags && input.learnedTags.length > 0) {
     parts.push(...sample(input.learnedTags, Math.min(2, input.learnedTags.length), input.rng));
+  }
+
+  // The arrangement the words were written for: a style that breaks the groove and returns
+  // needs the engine to be asked for that, or the words and the music disagree.
+  if (input.styleHints && input.styleHints.length > 0) {
+    parts.push(...sample(input.styleHints, Math.min(1, input.styleHints.length), input.rng));
   }
 
   parts.push(tempoWord(input.bpm));
@@ -143,8 +151,8 @@ export function buildRationale(input: {
   momentumNew: number;
   keyScale: string;
   learnedNotes: string[];
-  /** One-line description of the lyric arc used (perspective -> ...). */
-  arcSummary?: string;
+  /** One-line description of the lyric engine that ran (the arc, or any other style). */
+  engineSummary?: string;
 }): string {
   const bits = [
     `${input.market} chart skews ${input.primaryGenre} (${Math.round(input.genreShare * 100)}% of weighted chart share)`,
@@ -154,7 +162,7 @@ export function buildRationale(input: {
     `${input.momentumNew} new chart entries this snapshot`,
   ];
   if (input.learnedNotes.length > 0) bits.push(`learned: ${input.learnedNotes.join('; ')}`);
-  if (input.arcSummary) bits.push(`lyric arc: ${input.arcSummary}`);
+  if (input.engineSummary) bits.push(`lyric engine: ${input.engineSummary}`);
   return bits.join('; ');
 }
 

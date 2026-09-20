@@ -11,9 +11,10 @@ import { clamp, mulberry32, pickWeighted, seedFromString } from '../lib/util.js'
 import { GENRE_STYLE } from './genreStyle.js';
 import { flavorFor } from './marketFlavor.js';
 import { buildRationale, chooseTitle, composeStylePrompt } from './prompt.js';
+import { lyricProvenance } from './provenance.js';
 import { GENRE_TEMPO_HINTS, clampBpm, suggestKeys, tempoClass } from '../analysis/tempo.js';
 import { validateLyricPlan, writeLyrics } from './lyrics.js';
-import { insertConcept, usedSubjects, usedTitles } from './store.js';
+import { insertConcept, usedAgents, usedSubjects, usedTitles } from './store.js';
 import type { Concept, DesignRequest, MarketWeight } from './types.js';
 
 /** Genres that are usually instrumental in their market. */
@@ -87,6 +88,10 @@ export function designConcepts(request: DesignRequest): Concept[] {
   // three times. Both lists only bias the choice - design never fails for lack of one.
   const recentSubjects = usedSubjects(market);
   const runSubjects: string[] = [];
+  // Same treatment for the writing style: a batch of three designs should vary in *how* it
+  // is told as well as in what it is about, and a later run should not repeat the last one.
+  const recentAgents = usedAgents(market);
+  const runAgents: string[] = [];
   const baseSeed = request.seed ?? Math.floor(Math.random() * 1_000_000);
   const concepts: Concept[] = [];
 
@@ -138,10 +143,12 @@ export function designConcepts(request: DesignRequest): Concept[] {
       rng,
       instrumental,
       usedSubjects: [...recentSubjects, ...runSubjects],
+      usedAgents: [...recentAgents, ...runAgents],
     });
 
     // Recorded so the next run in this market rotates rather than repeating.
     runSubjects.push(lyricPlan.subject);
+    runAgents.push(lyricPlan.agent);
 
     // The language the lyrics are *actually* written in, which is what the engine
     // must be told to sing - not the language the market asked for.
@@ -161,6 +168,9 @@ export function designConcepts(request: DesignRequest): Concept[] {
       language: lyricLanguage,
       instrumental,
       learnedTags,
+      // The style carries its production intent into the prompt (e.g. a breakdown and a
+      // return), so the engine is asked for the arrangement the words were written for.
+      styleHints: lyricPlan.agentStyleHints,
       rng,
     });
 
@@ -190,14 +200,17 @@ export function designConcepts(request: DesignRequest): Concept[] {
         ...(learnedTags.length > 0 ? [`tag preferences ${learnedTags.join(', ')}`] : []),
         // Surfaced in the rationale so a language fallback is impossible to miss.
         ...(lyricPlan.languageFallback ? [`language fallback: ${lyricPlan.languageNote}`] : []),
-        // And so is the subject: what it is, where it came from, and whether the pack
-        // could write it natively.
+        // And so are the subject and the writing style: what they are, where they came from,
+        // and whether the pack could really write them.
         `subject "${lyricPlan.subjectLabel}" (${lyricPlan.subjectSource}${
           lyricPlan.subjectMatched ? `: ${lyricPlan.subjectMatched}` : ''
         }${lyricPlan.subjectRealised ? '' : ', general material only'})`,
+        `writing style "${lyricPlan.agentName}" (${lyricPlan.agentSource}${
+          lyricPlan.agentRealised ? '' : ', pack lacks its primitives'
+        })`,
         `lyric singability ${lyricValidation.score}`,
       ],
-      arcSummary: lyricPlan.arcSummary,
+      engineSummary: lyricPlan.agentSummary,
     });
 
     concepts.push(
@@ -240,42 +253,7 @@ export function designConcepts(request: DesignRequest): Concept[] {
           randomSeed: false,
           primaryGenre,
           secondaryGenre,
-          hook: lyricPlan.hook,
-          structure: lyricPlan.structure,
-          // The narrative arc, stages mapped to sections plus the metaphor,
-          // contradiction and conclusion the writer chose.
-          lyricArc: lyricPlan.arc,
-          lyricArcSummary: lyricPlan.arcSummary,
-          // Language provenance: what the market asked for vs. what was written,
-          // so a fallback is visible in the UI and the run manifest rather than
-          // being discovered by listening.
-          requestedLanguage: lyricPlan.requestedLanguage,
-          lyricLanguage: lyricPlan.language,
-          lyricLanguageFallback: lyricPlan.languageFallback,
-          lyricLanguageNote: lyricPlan.languageNote,
-          lyricPack: lyricPlan.packLabel,
-          // What the song is about, and where that came from: the market's own chart
-          // words and themes, rotation, or a seeded draw.
-          lyricSubject: lyricPlan.subject,
-          lyricSubjectLabel: lyricPlan.subjectLabel,
-          lyricSubjectSource: lyricPlan.subjectSource,
-          lyricSubjectMatched: lyricPlan.subjectMatched,
-          lyricSubjectRealised: lyricPlan.subjectRealised,
-          // Singability gate: score plus the specific lines that failed it.
-          lyricValidation: {
-            score: lyricValidation.score,
-            lineCount: lyricValidation.lineCount,
-            targetSyllables: lyricValidation.targetSyllables,
-            syllableRange: lyricValidation.syllableRange,
-            meterFit: lyricValidation.meterFit,
-            rhymeDensity: lyricValidation.rhymeDensity,
-            repetition: lyricValidation.repetition,
-            scriptConsistency: lyricValidation.scriptConsistency,
-            detectedScript: lyricValidation.detectedScript,
-            cliches: lyricValidation.cliches,
-            issues: lyricValidation.issues,
-          },
-          briefSummary: brief.summary,
+          ...lyricProvenance(lyricPlan, lyricValidation),
         },
       }),
     );

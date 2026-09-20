@@ -22,6 +22,11 @@ for (const row of rows) {
   const subject = `${params.lyricSubject ?? '-'} (${params.lyricSubjectSource ?? '-'}${
     params.lyricSubjectRealised === false ? ', general material only' : ''
   })`;
+  // The writing style is provenance too: a concept's arrangement is not guessable from its
+  // words, and `general` marks a style the pack had no primitives for.
+  const style = `${params.lyricAgent ?? '-'} (${params.lyricAgentSource ?? '-'}${
+    params.lyricAgentRealised === false ? ', pack lacks its primitives' : ''
+  })`;
   const parts = [
     row.market.toUpperCase().padEnd(3),
     `vocal_language=${row.vocal_language}`,
@@ -29,11 +34,13 @@ for (const row of rows) {
     `written=${params.lyricLanguage}`,
     `fallback=${params.lyricLanguageFallback}`,
     `subject=${subject}`,
+    `style=${style}`,
     `singability=${validation.score ?? '-'}`,
     `issues=${issues.length}`,
   ];
   console.log(parts.join(' | '));
   console.log(`    title: ${row.title}`);
   if (params.lyricSubjectMatched) console.log(`    subject matched on: ${params.lyricSubjectMatched}`);
+  if (params.lyricAgentSummary) console.log(`    style summary: ${params.lyricAgentSummary}`);
   if (issues.length > 0) console.log(`    first issue: ${issues[0]}`);
 }

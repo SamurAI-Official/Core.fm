@@ -33,6 +33,7 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
 
 /** Bare time nouns: no copula, so no politeness level to get wrong. */
 const TIMES = ['자정', '해 뜨기 전', '노을 무렵', '막차 시간', '또 한 번의 일요일', '문을 닫는 시간'];
@@ -232,6 +233,33 @@ const SUBJECT_MATERIAL: SubjectTable = {
 /** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
 const bank = bankPicker(SUBJECT_MATERIAL);
 
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines, not fragments: a writing agent decides the order, so a question has to
+ * read as a question wherever it lands. Plain 해체 forms throughout, matching the rest of
+ * the pack, and no particle depends on what precedes it.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    '왜 나를 두고 갔어',
+    '너는 어디로 갔어',
+    '이제 나는 뭘 해야 해',
+    '언제까지 기다려야 해',
+    '누가 나를 구해 줄까',
+    '우리는 언제 남이 됐어',
+    '누가 진실을 말해 줄까',
+  ],
+  answer: [
+    '나는 머물 수 없었어',
+    '아무도, 아무도 안 왔어',
+    '나도 잘 몰라, 그게 다야',
+    '내 일이 아니었어',
+    '누군가는 해야 했어',
+    '이미 반쯤 떠났어',
+  ],
+};
+
 export const koreanPack: LanguagePack = {
   code: 'ko',
   label: 'Korean',
@@ -239,6 +267,7 @@ export const koreanPack: LanguagePack = {
   script: 'hangul',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)} ${fromBank(rng, HOOK_VERBS)}`,
   // A whole clause: Korean needs no copula here, so there is no agreed verb to add.

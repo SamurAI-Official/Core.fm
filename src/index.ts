@@ -138,6 +138,16 @@ async function main(): Promise<void> {
             }${concept.params?.lyricSubjectRealised === false ? ', general material only' : ''})`,
           );
         }
+        const agentName = concept.params?.lyricAgentName;
+        if (typeof agentName === 'string') {
+          log(
+            `  writing: ${agentName} (${concept.params?.lyricAgent}${
+              typeof concept.params?.lyricAgentSource === 'string'
+                ? `, chosen by ${concept.params.lyricAgentSource}`
+                : ''
+            }${concept.params?.lyricAgentRealised === false ? ', pack lacks its primitives' : ''})`,
+          );
+        }
         if (typeof hook === 'string') log(`  hook : ${hook}`);
         if (typeof arcSummary === 'string') log(`  arc  : ${arcSummary}`);
       }

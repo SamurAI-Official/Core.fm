@@ -42,8 +42,16 @@ export interface LyricValidation {
   meterFit: number;
   /** Share of adjacent line pairs that rhyme or assonate. */
   rhymeDensity: number;
-  /** Share of lines duplicated inside their own section (should be 0). */
+  /** Share of lines duplicated inside their own section (0 when repetition is the device). */
   repetition: number;
+  /**
+   * Lines repeated inside their own section, counted regardless of policy.
+   *
+   * This is the informational number: a refrain song reports `repetition: 0` because the
+   * repeat is the technique rather than a defect, and this field still says how many
+   * repeats it used.
+   */
+  repeatedLines: number;
   /** Share of characters written in the expected script. */
   scriptConsistency: number;
   cliches: string[];
@@ -281,12 +289,43 @@ function parseSections(lyrics: string): ParsedSection[] {
   return sections;
 }
 
+/**
+ * Sections of a lyric, headers removed.
+ *
+ * Exported so the writing-style gate and the inspection scripts read a generated song the
+ * same way the validator does - a second parser in `scripts/` would be a second definition
+ * of where a section ends, and the two would drift.
+ */
+export interface LyricSection {
+  name: string;
+  lines: string[];
+}
+
+export function sectionMap(lyrics: string): LyricSection[] {
+  return parseSections(lyrics).map((section) => ({ name: section.name, lines: section.lines }));
+}
+
+/** Just the sung lines, headers stripped, one per line. */
+export function plainText(lyrics: string): string {
+  return parseSections(lyrics)
+    .flatMap((section) => section.lines)
+    .join('\n');
+}
+
 export interface ValidateOptions {
   language: string;
   script: ScriptFamily;
   bpm: number;
   timeSignature: string;
   barsPerLine?: number;
+  /**
+   * Whether a line repeated inside its own section is a fault (`fault`, the default) or
+   * the technique the song is built on (`device` - a refrain, a call and response, a
+   * circular return). The count is measured either way and reported in `repeatedLines`;
+   * only the *fault* interpretation changes, and a gate asserts that a device style really
+   * did repeat something rather than being let off.
+   */
+  repetitionPolicy?: 'fault' | 'device';
 }
 
 /**
@@ -322,6 +361,7 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
       meterFit: 0,
       rhymeDensity: 0,
       repetition: 0,
+      repeatedLines: 0,
       scriptConsistency: 1,
       cliches: [],
       issues: ['no lyric lines to validate'],
@@ -347,10 +387,12 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
   }
   const rhymeDensity = pairCount === 0 ? 0 : round(rhymingPairs / pairCount, 3);
 
-  // A section repeating its own line is a generation fault. Two exclusions keep
-  // the metric honest: chorus repeats *across* sections are intentional (counting
-  // per section handles that), and a section whose first and last lines match is
-  // the deliberate closing-chorus bookend, not a fault.
+  // A section repeating its own line is a generation fault - unless the style repeats on
+  // purpose. The count is always measured; the policy only decides whether it costs score.
+  // Two exclusions keep the measurement honest: chorus repeats *across* sections are
+  // intentional (counting per section handles that), and a section whose first and last
+  // lines match is the deliberate closing bookend, not a fault.
+  const repetitionPolicy = options.repetitionPolicy ?? 'fault';
   let duplicated = 0;
   for (const section of sections) {
     const bookend =
@@ -363,7 +405,8 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
       seen.add(key);
     }
   }
-  const repetition = round(duplicated / metrics.length, 3);
+  const repeatedLines = duplicated;
+  const repetition = repetitionPolicy === 'device' ? 0 : round(duplicated / metrics.length, 3);
 
   // Measured over lyric lines only. Section headers ("[Verse 1]", "[Chorus]") are
   // engine control tokens, not sung text - counting them cost every non-Latin
@@ -427,6 +470,7 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
     meterFit,
     rhymeDensity,
     repetition,
+    repeatedLines,
     scriptConsistency,
     cliches,
     issues,
