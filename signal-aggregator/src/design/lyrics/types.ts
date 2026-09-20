@@ -14,6 +14,7 @@
  * smallest thing that can be verified by someone who speaks the language.
  */
 import type { LyricStage } from '../arc.js';
+import type { PrimitiveId } from './primitives.js';
 
 /** Everything a stage needs in order to render its lines. */
 export interface LyricContext {
@@ -102,6 +103,17 @@ export interface LanguagePack {
   introLine(ctx: LyricContext): string;
   /** Applies the closing reframe so the song ends unresolved rather than resolved. */
   reframe(hook: string, qualifier: string): string;
+
+  /**
+   * Whole-line primitives a writing agent may place freely (see `primitives.ts`).
+   *
+   * `render` gives lines for templates this pack owns, so a bank entry only has to be
+   * right inside its one slot. An agent chooses the order of a primitive, so a primitive
+   * entry must read correctly **standing alone**. Coverage is derived from the table: a
+   * primitive exists when it has entries, and an agent that needs one this pack lacks is
+   * simply never chosen for it.
+   */
+  primitives?: Partial<Record<PrimitiveId, string[]>>;
 
   /**
    * Metaphor objects for the concrete-metaphor stage, in this language.

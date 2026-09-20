@@ -31,6 +31,7 @@ import {
   type LanguagePack,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
 
 /** Bare time nouns: no copula, so nothing can misagree. */
 const TIMES = ['午夜', '天亮之前', '黄昏时候', '末班车时间', '又一个周日', '收摊的时候'];
@@ -216,6 +217,32 @@ const SUBJECT_MATERIAL: SubjectTable = {
 /** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
 const bank = bankPicker(SUBJECT_MATERIAL);
 
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Complete lines, not fragments: a writing agent decides the order, so a question has to
+ * read as a question wherever it lands. No measure word or particle here depends on what
+ * precedes the line.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    '你为什么离开这里',
+    '你现在要去哪里',
+    '现在我该做什么',
+    '要我等到什么时候',
+    '谁能告诉我真相',
+    '我们什么时候变的',
+  ],
+  answer: [
+    '因为我留不下来',
+    '没有人来，一直没有',
+    '我也不知道，这是真话',
+    '从来都不是我的事',
+    '总得有人去做',
+    '我早就走了一半',
+  ],
+};
+
 export const chinesePack: LanguagePack = {
   code: 'zh',
   label: 'Mandarin Chinese',
@@ -223,6 +250,7 @@ export const chinesePack: LanguagePack = {
   script: 'han',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   buildHook: (rng) => `${fromBank(rng, HOOK_LEADS)}${fromBank(rng, HOOK_VERBS)}`,
   // A whole clause: Chinese has no copula to agree here.

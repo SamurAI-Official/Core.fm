@@ -45,6 +45,7 @@ import {
   type LyricContext,
   type SubjectTable,
 } from './types.js';
+import type { PrimitiveId } from './primitives.js';
 
 /**
  * Subject material: what this pack writes when a song is about a specific thing.
@@ -125,6 +126,33 @@ const SUBJECT_MATERIAL: SubjectTable = {
 /** Subject-aware bank lookup; any stage a subject omits uses the general bank. */
 const bank = bankPicker(SUBJECT_MATERIAL);
 
+/**
+ * Whole-line primitives for styles that place lines themselves (see `primitives.ts`).
+ *
+ * Every entry is a complete line, because a writing agent chooses the order: a question
+ * has to read as a question wherever it lands, and an answer has to stand alone. They are
+ * also written subject-agnostic - the subject is carried by the rest of the song.
+ */
+const PRIMITIVE_BANKS: Partial<Record<PrimitiveId, string[]>> = {
+  question: [
+    'Why did you leave this town',
+    'Where do you go when you go',
+    'Who is gonna save me now',
+    'What do I do with the rest',
+    'How long do I keep the light on',
+    'When did we stop being us',
+    'Who is going to tell me the truth',
+  ],
+  answer: [
+    'Because I could not stay',
+    'Nobody, and nobody came',
+    'I do not know, and that is the truth',
+    'Because it was never about me',
+    'Because somebody had to',
+    'I was already half gone',
+  ],
+};
+
 export const englishPack: LanguagePack = {
   code: 'en',
   label: 'English',
@@ -132,6 +160,7 @@ export const englishPack: LanguagePack = {
   script: 'latin',
   complete: true,
   subjectCoverage: subjectIdsOf(SUBJECT_MATERIAL),
+  primitives: PRIMITIVE_BANKS,
 
   // Hook subjects are restricted to plural/first-person so the base-form verb
   // phrases always agree ("Late-night drive say it first" was the original bug).

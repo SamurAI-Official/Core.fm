@@ -18,6 +18,7 @@
     "test:lyrics": "tsx scripts/lyric-validate-suite.ts",
     "test:packs": "tsx scripts/lyric-pack-acceptance.ts",
     "test:subjects": "tsx scripts/subject-spread.ts",
+    "test:agents": "tsx scripts/agent-spread.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "typecheck": "tsc --noEmit"
   },

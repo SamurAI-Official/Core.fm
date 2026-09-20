@@ -134,6 +134,34 @@ export function updateConceptFields(id: string, patch: ConceptPatch): Concept | 
   return getConcept(id);
 }
 
+/**
+ * Replaces a concept's lyrics and merges fresh provenance into its params.
+ *
+ * The reroll path needs its own function: `updateConceptFields` writes whitelisted columns
+ * only, and merging through it would leave the *old* lyric provenance (subject, style,
+ * validation) sitting next to the new lyrics. Status returns to `designed`, because any
+ * render that already happened no longer matches what is stored.
+ */
+export function updateConceptLyrics(
+  id: string,
+  lyrics: string,
+  vocalLanguage: string,
+  params: Record<string, unknown>,
+): Concept | null {
+  const current = getConcept(id);
+  if (!current) return null;
+  pool.query(
+    `UPDATE concepts SET lyrics = ?, vocal_language = ?, params = ?, status = 'designed' WHERE id = ?`,
+    [
+      lyrics,
+      vocalLanguage,
+      JSON.stringify({ ...current.params, ...params, rerolledAt: new Date().toISOString() }),
+      id,
+    ],
+  );
+  return getConcept(id);
+}
+
 export function getConcept(id: string): Concept | null {
   const { rows } = pool.query<Record<string, unknown>>('SELECT * FROM concepts WHERE id = ?', [id]);
   return rows[0] ? mapConcept(rows[0]) : null;
@@ -170,6 +198,26 @@ export function usedTitles(market: string, limit = 200): string[] {
     [market, limit],
   );
   return rows.map((row) => row.title);
+}
+
+/**
+ * Writing styles recently used in a market, newest first.
+ *
+ * Read back from the stored designs (`params.lyricAgent`) for the same reason subjects are:
+ * rotation then survives a restart and reflects what was really designed, and a concept
+ * written before writing styles existed simply contributes nothing.
+ */
+export function usedAgents(market: string, limit = 24): string[] {
+  const { rows } = pool.query<{ params: string }>(
+    'SELECT params FROM concepts WHERE market = ? ORDER BY created_at DESC LIMIT ?',
+    [market, limit],
+  );
+  const agents: string[] = [];
+  for (const row of rows) {
+    const agent = jsonParse<Record<string, unknown>>(row.params, {}).lyricAgent;
+    if (typeof agent === 'string' && agent.length > 0 && !agents.includes(agent)) agents.push(agent);
+  }
+  return agents;
 }
 
 /**

@@ -13,7 +13,18 @@ import { marketInfo } from '../markets.js';
 import { briefConfidence, latestBrief } from '../briefs/build.js';
 import { collectSignals } from '../sources/collect.js';
 import { availableLanguages, pendingLanguages } from '../design/lyrics/index.js';
-import { getConcept, listConcepts, updateConceptFields, type ConceptPatch } from '../design/store.js';
+import { DEFAULT_AGENT, listAgents } from '../design/agents/registry.js';
+import { lyricProvenance } from '../design/provenance.js';
+import { flavorFor } from '../design/marketFlavor.js';
+import { GENRE_STYLE } from '../design/genreStyle.js';
+import { validateLyricPlan, writeLyrics } from '../design/lyrics.js';
+import {
+  getConcept,
+  listConcepts,
+  updateConceptFields,
+  updateConceptLyrics,
+  type ConceptPatch,
+} from '../design/store.js';
 import { designConcepts } from '../design/designer.js';
 import { getRun, listRuns, type RunRecord } from '../loops/store.js';
 import { getWeights, unratedRuns } from '../loops/ratings.js';
@@ -273,6 +284,71 @@ export function createApp(): express.Express {
     res.json({
       languages: availableLanguages(),
       pending: pendingLanguages(),
+    });
+  });
+
+  /**
+   * Writing styles, from the agent registry.
+   *
+   * Same anti-drift reason as languages: the dropdown and the writer must not be able to
+   * disagree about which styles exist. `packs` says which languages can really write each
+   * style today, so the UI can mark the rest honestly instead of offering them blindly.
+   */
+  app.get('/api/agents', (_req: Request, res: Response) => {
+    res.json({ agents: listAgents(), defaultAgent: DEFAULT_AGENT });
+  });
+
+  /**
+   * Rewrites one concept's lyrics with a chosen (or freshly drawn) writing style.
+   *
+   * Design-time only selection would make twenty styles unreachable: this is how a style is
+   * tried against a market and a subject without a full design run and without a render.
+   * The concept's market, genre, language and tempo are reused, so what changes is how the
+   * song is built - and the same provenance helper the designer uses records it.
+   */
+  app.post('/api/concepts/:id/reroll-lyrics', (req: Request, res: Response) => {
+    const concept = getConcept(String(req.params.id));
+    if (!concept) {
+      res.status(404).json({ error: 'concept not found' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as { agent?: string; seed?: number };
+    const brief = latestBrief(concept.market);
+    const flavor = flavorFor(concept.market);
+    const requestedLanguage =
+      typeof concept.params.requestedLanguage === 'string'
+        ? concept.params.requestedLanguage
+        : concept.vocalLanguage;
+
+    const plan = writeLyrics({
+      themes: flavor.themes,
+      terms: (brief?.topTerms ?? []).map((term) => term.term),
+      energy: GENRE_STYLE[concept.primaryGenre]?.energy ?? 0.6,
+      language: requestedLanguage,
+      genre: concept.primaryGenre,
+      seed: typeof body.seed === 'number' ? body.seed : undefined,
+      agent: typeof body.agent === 'string' && body.agent.length > 0 ? body.agent : undefined,
+      instrumental: concept.instrumental,
+    });
+
+    const validation = validateLyricPlan(plan, {
+      bpm: concept.bpm,
+      timeSignature: concept.timeSignature,
+    });
+
+    const updated = updateConceptLyrics(
+      concept.id,
+      plan.lyrics,
+      plan.language,
+      lyricProvenance(plan, validation),
+    );
+
+    res.json({
+      concept: updated,
+      style: { id: plan.agent, name: plan.agentName, source: plan.agentSource, realised: plan.agentRealised },
+      subject: { id: plan.subject, label: plan.subjectLabel, source: plan.subjectSource },
+      validation: { score: validation.score, meterFit: validation.meterFit, issues: validation.issues },
     });
   });
 

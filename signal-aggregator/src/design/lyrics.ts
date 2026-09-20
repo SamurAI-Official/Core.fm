@@ -12,6 +12,11 @@
  * cannot write is impossible to label a concept with, rather than invisible when it
  * happens.
  *
+ * Style handling: *how* the song is built belongs to a writing agent (see agents/). Each
+ * style supplies its own arrangement and renders it through the pack's roles and
+ * primitives; this module only chooses a style (coverage-filtered, rotation-aware,
+ * affinity-weighted), caches repeated sections by variant, and reports what ran.
+ *
  * Language handling: the requested language resolves to a LanguagePack
  * (lyrics/index.ts) that owns both its banks and its grammar. When no pack exists
  * the fallback is *reported*, not hidden: `language` is the language the lyrics are
@@ -25,18 +30,13 @@
 import { mulberry32, seedFromString } from '../lib/util.js';
 import { scriptShare } from '../lib/text.js';
 import { metaphorFamily } from './imagery.js';
-import {
-  describeArc,
-  planFor,
-  stageLabel,
-  LYRIC_ARC,
-  type LyricArcReport,
-  type LyricStage,
-} from './arc.js';
-import { renderSection } from './lyricStages.js';
+import { describeArc, LYRIC_ARC, stageLabel, type LyricArcReport, type LyricStage } from './arc.js';
+import { chooseAgent, DEFAULT_AGENT } from './agents/registry.js';
+import type { AgentSource } from './agents/types.js';
 import { resolvePack } from './lyrics/index.js';
+import { coversPrimitives } from './lyrics/primitives.js';
 import { chooseSubject, subjectProfile } from './lyrics/subjects.js';
-import type { LanguagePack, LyricContext, ScriptFamily } from './lyrics/types.js';
+import { takeLines, type LanguagePack, type LyricContext, type ScriptFamily } from './lyrics/types.js';
 import { validateLyrics, type LyricValidation } from './lyrics/validate.js';
 
 export interface LyricPlan {
@@ -66,9 +66,29 @@ export interface LyricPlan {
   subjectMatched?: string;
   /** False when the writing pack has no material for this subject (general banks only). */
   subjectRealised: boolean;
-  /** What the arc actually did - surfaced in the UI, rationale and manifest. */
-  arc: LyricArcReport;
-  arcSummary: string;
+  /** The writing style that built this song (see `agents/registry.ts`). */
+  agent: string;
+  agentName: string;
+  /** The engine chain, in the words of the design brief. */
+  agentEngine: string[];
+  agentBlurb: string;
+  /** Why this style was chosen: rotation, genre/energy affinity, or a seeded draw. */
+  agentSource: AgentSource;
+  /** False when the pack lacks a primitive this style needs (forced selection only). */
+  agentRealised: boolean;
+  /** Production intent the style implies, for the style prompt. */
+  agentStyleHints: string[];
+  /** One-line description of the arrangement that was actually built. */
+  agentSummary: string;
+  /** Style-specific provenance: the refrain and its readings, the questions asked... */
+  agentReport: Record<string, unknown>;
+  /** Section -> roles for every style, so the UI needs no per-style knowledge. */
+  agentStructure: Array<{ section: string; roles: string[]; variant?: string }>;
+  /** Repetition is a device in some styles and a fault in others. */
+  repetitionPolicy: 'fault' | 'device';
+  /** What the arc did - present only for the arc style, which owns this report shape. */
+  arc?: LyricArcReport;
+  arcSummary?: string;
 }
 
 
@@ -145,6 +165,17 @@ export function writeLyrics(options: {
    * consecutive designs rotate instead of repeating one subject.
    */
   usedSubjects?: string[];
+  /**
+   * Writing styles already used for this market (and earlier in this run), so a batch of
+   * designs varies in *how* it is told as well as in what it is about.
+   */
+  usedAgents?: string[];
+  /**
+   * Force a writing style by id (the UI's reroll path). A forced style is honoured even
+   * when the pack cannot fully realise it, and the plan then says `agentRealised: false`
+   * rather than quietly substituting a different arrangement.
+   */
+  agent?: string;
 }): LyricPlan {
   const rng = options.rng ?? seededRng(options.seed ?? 1);
   const resolution = resolvePack(options.language);
@@ -164,7 +195,19 @@ export function writeLyrics(options: {
 
   const topicWord = pickTopicWord(pack, options.terms, subject.id);
 
-  const plan = planFor(options.energy);
+  // Which structural engine tells this song. Coverage-filtered (only styles the pack can
+  // write), rotation-aware, and affinity-weighted; a forced style from the UI wins.
+  const agentChoice = chooseAgent({
+    rng,
+    genre: options.genre ?? 'other',
+    energy: options.energy,
+    pack,
+    exclude: options.usedAgents,
+    forced: options.agent,
+  });
+  const agent = agentChoice.agent;
+  const agentRealised = coversPrimitives(pack, agent.needs);
+  const agentPlan = agent.plan({ energy: options.energy, rng });
 
   const hook = pack.buildHook(rng);
   const scale = pack.buildScale(rng);
@@ -198,34 +241,33 @@ export function writeLyrics(options: {
     subjectLabel: subject.label,
   };
 
-  // Chorus repeats must match; the closing chorus is cached separately.
+  // A section is rendered once per variant and reused: that is what makes a repeated
+  // chorus actually repeated. A section may also ask to repeat an earlier variant outright
+  // (`repeatOf`), which is how a circular return is expressed. Styles own this choice.
   const cache = new Map<string, string[]>();
-  const sections = plan.map((entry) => {
-    const key = entry.reframe ? `${entry.section}#reframe` : entry.section;
+  const sections = agentPlan.sections.map((entry) => {
+    const variantKey = entry.variant ?? entry.repeatOf;
+    const key = variantKey ? `variant:${variantKey}` : `section:${entry.section}`;
     let lines = cache.get(key);
     if (!lines) {
-      lines = renderSection(entry, ctx, pack);
+      lines = takeLines(agent.write(entry, ctx, pack, new Set<string>()), entry.lines);
       cache.set(key, lines);
     }
     return { section: entry.section, lines };
   });
 
-  const usedStages = new Set<LyricStage>(plan.flatMap((entry) => entry.stages));
-  const arc: LyricArcReport = {
-    stages: ALL_STAGES.filter((stage) => usedStages.has(stage)),
-    sectionMap: plan.map((entry) => ({
-      section: entry.reframe ? `${entry.section} (reframed)` : entry.section,
-      stages: entry.stages,
-    })),
-    metaphor,
-    contradiction,
-    conclusion,
-    scaleSubject: ctx.wideSubject,
-  };
+  const agentReport = agent.report?.(ctx, agentPlan, pack) ?? {};
+  // The arc is the only style with a legacy report shape, and existing concepts, the
+  // Trends panel and the CLI all read it - so it is kept for the arc and omitted for
+  // every other style, which describes itself through `agentReport` + `agentStructure`.
+  const arcReport =
+    agent.id === DEFAULT_AGENT ? (agentReport as unknown as LyricArcReport) : undefined;
+  const agentSummary =
+    typeof agentReport.summary === 'string' ? agentReport.summary : agentPlan.summary;
 
   const base = {
     hook,
-    structure: plan.map((entry) => entry.section),
+    structure: agentPlan.sections.map((entry) => entry.section),
     language: pack.code,
     requestedLanguage: resolution.requested,
     languageFallback: resolution.fallback,
@@ -238,8 +280,22 @@ export function writeLyrics(options: {
     subjectSource: subject.source,
     subjectMatched: subject.matched,
     subjectRealised,
-    arc,
-    arcSummary: describeArc(arc),
+    agent: agent.id,
+    agentName: agent.name,
+    agentEngine: agent.engine,
+    agentBlurb: agent.blurb,
+    agentSource: agentChoice.source,
+    agentRealised,
+    agentStyleHints: agent.styleHints ?? [],
+    agentSummary,
+    agentReport,
+    agentStructure: agentPlan.sections.map((entry) => ({
+      section: entry.section,
+      roles: entry.roles,
+      ...(entry.variant ? { variant: entry.variant } : {}),
+    })),
+    repetitionPolicy: agent.repetition,
+    ...(arcReport ? { arc: arcReport, arcSummary: describeArc(arcReport) } : {}),
   };
 
   if (options.instrumental) return { ...base, lyrics: '' };
@@ -266,6 +322,9 @@ export function validateLyricPlan(
     script: plan.script,
     bpm: options.bpm,
     timeSignature: options.timeSignature,
+    // Repetition is a fault in most styles and the whole point in others, so the policy
+    // travels with the plan rather than being assumed by the validator.
+    repetitionPolicy: plan.repetitionPolicy,
   });
 }
 
