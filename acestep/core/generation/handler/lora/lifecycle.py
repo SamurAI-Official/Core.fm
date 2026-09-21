@@ -404,6 +404,28 @@ def remove_lora(self, adapter_name: str) -> str:
         return f"❌ Failed to remove LoRA: {str(e)}"
 
 
+def _restore_base_decoder(module: Any, base_state: dict[str, Any]) -> Any:
+    """Load a pre-adapter state_dict onto ``module``, remapping PEFT's nested keys.
+
+    PEFT replaces each linear with a wrapper that keeps the original weight under ``base_layer``
+    alongside ``lora_A``/``lora_B`` entries, so a backup taken before wrapping holds
+    ``...q_proj.weight`` where the wrapped module now expects ``...q_proj.base_layer.weight``.
+    Without the remap every base weight is discarded as "unexpected" and every wrapped weight is
+    reported "missing", which left the adapter in effect while the caller was told the base model
+    had been restored.
+    """
+    target_keys = set(module.state_dict().keys())
+    remapped: dict[str, Any] = {}
+    for key, value in base_state.items():
+        head, _, tail = key.rpartition(".")
+        candidates = [f"{head}.base_layer.{tail}", key] if head else [key]
+        for candidate in candidates:
+            if candidate in target_keys:
+                remapped[candidate] = value
+                break
+    return module.load_state_dict(remapped, strict=False)
+
+
 def unload_lora(self) -> str:
     """Unload all LoRA adapters and restore base decoder."""
     if not self.lora_loaded:
@@ -434,21 +456,31 @@ def unload_lora(self) -> str:
         except ImportError:
             PeftModel = None  # type: ignore[assignment]
 
+        load_result = None
         if PeftModel is not None and isinstance(self.model.decoder, PeftModel):
-            logger.info("Extracting base model from PEFT wrapper")
-            self.model.decoder = self.model.decoder.get_base_model()
-            load_result = self.model.decoder.load_state_dict(self._base_decoder, strict=False)
-            if load_result.missing_keys:
-                logger.warning(f"Missing keys when restoring decoder: {load_result.missing_keys[:5]}")
-            if load_result.unexpected_keys:
-                logger.warning(f"Unexpected keys when restoring decoder: {load_result.unexpected_keys[:5]}")
+            # Prefer PEFT's own unload: it removes the injected layers and restores the original
+            # linear modules by construction, which the state_dict route cannot do reliably.
+            peft_unload = getattr(self.model.decoder, "unload", None)
+            if callable(peft_unload):
+                logger.info("Unloading PEFT adapter via PeftModel.unload()")
+                self.model.decoder = peft_unload()
+            else:
+                logger.info("Extracting base model from PEFT wrapper")
+                self.model.decoder = self.model.decoder.get_base_model()
+                load_result = _restore_base_decoder(self.model.decoder, self._base_decoder)
         else:
             logger.info("Restoring base decoder from state_dict backup")
-            load_result = self.model.decoder.load_state_dict(self._base_decoder, strict=False)
-            if load_result.missing_keys:
-                logger.warning(f"Missing keys when restoring decoder: {load_result.missing_keys[:5]}")
-            if load_result.unexpected_keys:
-                logger.warning(f"Unexpected keys when restoring decoder: {load_result.unexpected_keys[:5]}")
+            load_result = _restore_base_decoder(self.model.decoder, self._base_decoder)
+
+        if load_result is not None and (load_result.missing_keys or load_result.unexpected_keys):
+            # Returning "unloaded" here would be a lie: the decoder still holds adapter-merged
+            # weights, so the caller must not be told the base model is back.
+            detail = (
+                f"missing={load_result.missing_keys[:5]} "
+                f"unexpected={load_result.unexpected_keys[:5]}"
+            )
+            logger.error(f"Decoder restore was incomplete: {detail}")
+            return f"❌ LoRA could not be fully unloaded; decoder restore incomplete ({detail})"
 
         self.model.decoder = self.model.decoder.to(self.device).to(self.dtype)
         self.model.decoder.eval()
@@ -471,7 +503,14 @@ def unload_lora(self) -> str:
 
         if mem_before is not None and hasattr(self, "_memory_allocated"):
             mem_after = self._memory_allocated() / (1024**3)
-            logger.info(f"VRAM after LoRA unload: {mem_after:.2f}GB (freed: {mem_before - mem_after:.2f}GB)")
+            # Report both readings instead of a "freed" figure: unloading also moves the base decoder
+            # between CPU and GPU, so this difference is dominated by offload state rather than by the
+            # adapter's size, and the old label printed a negative amount of "freed" memory. The
+            # adapter removal itself is confirmed below by the decoder restore succeeding.
+            logger.info(
+                f"VRAM after LoRA unload: {mem_after:.2f}GB (before: {mem_before:.2f}GB; "
+                f"the difference reflects adapter removal plus decoder offload state)"
+            )
 
         logger.info("LoRA unloaded, base decoder restored")
         return "✅ LoRA unloaded, using base model"
