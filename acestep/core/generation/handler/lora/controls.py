@@ -3,6 +3,7 @@
 import math
 from typing import Any
 
+import torch
 from loguru import logger
 
 from acestep.constants import DEBUG_MODEL_LOADING
@@ -29,7 +30,14 @@ def set_use_lora(self, use_lora: bool) -> str:
                         decoder.set_adapter(active)
                     except Exception:
                         pass
-                decoder.enable_adapter_layers()
+                # `enable_adapter_layers()` flips requires_grad on the adapter parameters, and torch
+                # refuses that on an "inference tensor" outside InferenceMode:
+                #   "Setting requires_grad=True on inference tensor outside InferenceMode is not
+                #    allowed."
+                # The decoder is built under inference_mode, so re-enabling a previously disabled
+                # adapter raised here every time. Running it inside InferenceMode is permitted.
+                with torch.inference_mode():
+                    decoder.enable_adapter_layers()
                 logger.info("LoRA adapter enabled")
                 scale = getattr(self, "_active_loras", {}).get(active, 1.0)
                 if active and scale != 1.0:
@@ -39,6 +47,9 @@ def set_use_lora(self, use_lora: bool) -> str:
                 logger.info("LoRA adapter disabled")
         except Exception as e:
             logger.warning(f"Could not toggle adapter layers: {e}")
+            # Returning "✅ LoRA enabled" after swallowing this is how an adapter that is loaded but
+            # inert gets reported as working. Surface it instead, so callers can tell the difference.
+            return f"\u274c Could not toggle LoRA adapter layers: {e}"
 
     status = "enabled" if use_lora else "disabled"
     return f"✅ LoRA {status}"
