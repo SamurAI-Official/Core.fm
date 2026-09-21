@@ -17,6 +17,18 @@ import json
 import os
 import sys
 
+# Windows consoles default to a legacy code page (cp1252), and the engine's status strings are full
+# of emoji (✅ ❌ 📂), so printing one raised
+# `UnicodeEncodeError: 'charmap' codec can't encode character '\u2705'` and killed the run before it
+# produced any output. Force UTF-8 on our own streams, and degrade unknown characters rather than
+# failing, so a status message can never abort preprocessing.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="Preprocess dataset to tensors for LoRA training")
     parser.add_argument("--dataset", required=True, help="Path to dataset JSON file")
@@ -51,14 +63,23 @@ def main():
         print("Make sure this script is run from the ACE-Step-1.5 directory or with the correct Python environment.", file=sys.stderr)
         sys.exit(1)
 
-    # Load dataset JSON
+    # Load the dataset through the builder's own serializer
+    # (dataset_builder_modules/serialization.py: `load_dataset` populates both `samples` and
+    # `metadata` and returns `(samples, status)`).
+    #
+    # This previously called `builder.load_from_dict(dataset_data)`, a method DatasetBuilder does not
+    # have, so preprocessing raised `AttributeError: 'DatasetBuilder' object has no attribute
+    # 'load_from_dict'` before it read a single sample - the step could never have worked.
     print(f"Loading dataset: {args.dataset}")
-    with open(args.dataset, "r") as f:
-        dataset_data = json.load(f)
-
-    # Reconstruct DatasetBuilder from JSON
     builder = DatasetBuilder()
-    builder.load_from_dict(dataset_data)
+    samples, load_status = builder.load_dataset(args.dataset)
+    print(load_status)
+
+    if not samples:
+        print(f"Error: {load_status}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"status": "error", "message": load_status, "labeled": 0, "total": 0}))
+        sys.exit(1)
 
     labeled_count = sum(1 for s in builder.samples if s.labeled)
     total_count = len(builder.samples)

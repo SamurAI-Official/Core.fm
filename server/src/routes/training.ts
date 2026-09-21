@@ -2,13 +2,20 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getGradioClient, hasGradioEndpoint } from '../services/gradio-client.js';
 import { config } from '../config/index.js';
-import { resolvePythonPath } from '../services/acestep.js';
 import multer from 'multer';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
 import { mkdir, writeFile, readFile } from 'fs/promises';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
+
+// This module is ESM (`"type": "module"`), so `__dirname` does not exist at runtime. Every other
+// file in the server defines it from `import.meta.url`; `training.ts` was the one exception and used
+// the bare global, so `/preprocess` threw `__dirname is not defined` on every request before it ever
+// reached Python.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 
@@ -303,6 +310,43 @@ router.get('/audio', authMiddleware, async (req: AuthenticatedRequest, res: Resp
 });
 
 // POST /api/training/preprocess — Spawn Python preprocessing script
+/**
+ * Call one of the engine's `/v1/dataset/*` endpoints.
+ *
+ * Those endpoints answer with a wrapper envelope (`{data, code, error}`) and still return HTTP 200
+ * when the operation failed, so the body's `error`/`code` have to be checked, not just the status.
+ */
+async function callEngineDataset(
+  endpoint: string,
+  body: Record<string, unknown>,
+  timeoutMs = 120_000,
+): Promise<{ data?: unknown; error?: string }> {
+  const response = await fetch(`${config.acestep.apiUrl}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { data?: unknown; code?: number; error?: string };
+  if (!response.ok) {
+    return { error: payload.error ?? `${endpoint} failed: HTTP ${response.status}` };
+  }
+  if (payload.error || (typeof payload.code === 'number' && payload.code >= 400)) {
+    return { error: payload.error ?? `${endpoint} failed with code ${payload.code}` };
+  }
+  return { data: payload.data };
+}
+
+// POST /api/training/preprocess — turn labeled samples into training tensors
+//
+// Preprocessing runs inside the engine process, where the models are already resident. The previous
+// implementation spawned a standalone Python script that imported `acestep.pipeline_ace_step` - a
+// module that does not exist in this engine - and called a `load_from_dict` method DatasetBuilder
+// does not have, so the step could never succeed. Doing it in-process also avoids loading a second
+// copy of the models on a 12 GB card.
+//
+// `/v1/dataset/preprocess` operates on the engine's own dataset builder, so the saved JSON is loaded
+// into it first - the JSON is the handoff between the editor and the trainer.
 router.post('/preprocess', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { datasetPath, outputDir } = req.body;
@@ -311,52 +355,31 @@ router.post('/preprocess', authMiddleware, async (req: AuthenticatedRequest, res
       return;
     }
 
-    const aceStepDir = getAceStepDir();
-    const scriptPath = path.resolve(__dirname, '../../scripts/preprocess_dataset.py');
-    const pythonPath = resolvePythonPath(aceStepDir);
     const resolvedOutput = outputDir || path.join(config.datasets.dir, 'preprocessed_tensors');
-
-    // Ensure output dir exists
     await mkdir(resolvedOutput, { recursive: true });
 
-    // Spawn Python process
-    const child = spawn(pythonPath, [
-      scriptPath,
-      '--dataset', datasetPath,
-      '--output', resolvedOutput,
-      '--json',
-    ], {
-      cwd: aceStepDir,
-      env: { ...process.env },
-    });
+    const loaded = await callEngineDataset('/v1/dataset/load', { dataset_path: datasetPath });
+    if (loaded.error) {
+      res.status(400).json({ error: loaded.error });
+      return;
+    }
 
-    let stdout = '';
-    let stderr = '';
+    // Preprocessing encodes audio and can legitimately take minutes, so allow a long timeout.
+    const result = await callEngineDataset(
+      '/v1/dataset/preprocess',
+      { output_dir: resolvedOutput },
+      30 * 60_000,
+    );
+    if (result.error) {
+      res.status(500).json({ error: result.error });
+      return;
+    }
 
-    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-    child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-    child.on('close', (code: number | null) => {
-      if (code === 0) {
-        // Try to parse JSON output
-        try {
-          const result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
-          res.json({ status: 'Preprocessing complete', ...result });
-        } catch {
-          res.json({ status: 'Preprocessing complete', output: stdout.trim() });
-        }
-      } else {
-        res.status(500).json({
-          error: 'Preprocessing failed',
-          code,
-          stderr: stderr.trim(),
-          stdout: stdout.trim(),
-        });
-      }
-    });
-
-    child.on('error', (err: Error) => {
-      res.status(500).json({ error: `Failed to spawn process: ${err.message}` });
+    const payload = (result.data ?? {}) as { message?: string; num_tensors?: number; output_dir?: string };
+    res.json({
+      status: payload.message ?? 'Preprocessing complete',
+      outputDir: payload.output_dir ?? resolvedOutput,
+      tensors: payload.num_tensors ?? 0,
     });
   } catch (error) {
     console.error('[Training] Preprocess error:', error);
@@ -749,45 +772,112 @@ router.post('/save-sample', authMiddleware, async (req: AuthenticatedRequest, re
 });
 
 // POST /api/training/update-settings — Update dataset global settings
-// Settings are applied directly when saving (via REST API), so no Gradio call needed here.
-router.post('/update-settings', authMiddleware, (_req: AuthenticatedRequest, res: Response) => {
-  res.json({ success: true });
+//
+// These settings live on the engine's dataset builder (a Gradio State) and are persisted into the
+// saved JSON's metadata, so they have to be pushed to the engine. This handler used to be a stub
+// that returned `{ success: true }` without calling anything, which is why the custom tag, tag
+// position, all-instrumental flag and genre ratio a user set in the panel were written into the
+// dataset file as unset (`{"__type__": "update"}`).
+router.post('/update-settings', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { customTag, tagPosition, allInstrumental, genreRatio } = req.body;
+    const outcome = await applyDatasetSettings({ customTag, tagPosition, allInstrumental, genreRatio });
+
+    if (outcome === 'incomplete') {
+      res.status(400).json({
+        error:
+          'Dataset settings must be sent together: customTag, tagPosition, allInstrumental, genreRatio. ' +
+          'The engine applies all four on every call, so sending a subset would overwrite the rest.',
+      });
+      return;
+    }
+
+    res.json({ success: true, settingsApplied: outcome === 'applied' });
+  } catch (error) {
+    console.error('[Training] Update settings error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to update settings' });
+  }
 });
 
-// POST /api/training/save-dataset — Save the dataset to a JSON file
+/**
+ * Push dataset settings to the engine's dataset builder.
+ *
+ * `/update_settings` takes the four values positionally; the builder itself is a Gradio State
+ * component and must NOT be passed, or every following argument shifts by one - the same class of
+ * bug as `isFormatCaption` in the generation wrapper.
+ *
+ * The engine applies all four on every call (`set_all_instrumental` and `genre_ratio` are
+ * unconditional), so a partial payload would silently overwrite the fields the caller left out.
+ * Settings are therefore applied only when the caller supplies the complete set - which the training
+ * panel does - and the caller is told what happened rather than left assuming it worked.
+ *
+ * Returns 'absent' when no settings were sent, 'incomplete' for a partial set, 'applied' on success.
+ */
+async function applyDatasetSettings(settings: {
+  customTag?: unknown;
+  tagPosition?: unknown;
+  allInstrumental?: unknown;
+  genreRatio?: unknown;
+}): Promise<'absent' | 'incomplete' | 'applied'> {
+  const provided = [settings.customTag, settings.tagPosition, settings.allInstrumental, settings.genreRatio].filter(
+    (value) => value !== undefined,
+  );
+  if (provided.length === 0) return 'absent';
+  if (provided.length < 4) return 'incomplete';
+
+  const client = await getGradioClient();
+  await client.predict('/update_settings', [
+    String(settings.customTag ?? ''),
+    String(settings.tagPosition ?? 'replace'),
+    Boolean(settings.allInstrumental),
+    Number(settings.genreRatio ?? 0),
+  ]);
+
+  return 'applied';
+}
+
+// POST /api/training/save-dataset — Save the dataset (with every edited lyric) to a JSON file
+//
+// The engine persists a dataset through its Gradio endpoint `/save_dataset`, which takes
+// `save_path` and `dataset_name`; the dataset builder itself is a Gradio State and must not be
+// passed positionally.
+//
+// This handler used to POST to `${apiUrl}/v1/dataset/save`. That looks correct - the route really is
+// defined in the engine source (`acestep/api/train_api_dataset_service.py`) - but nothing ever calls
+// `register_training_dataset_routes`, so it is never registered and the engine answers 404
+// "Not Found". The route turned that into a 500 and no edit ever reached disk, which is exactly why
+// lyrics typed into the dataset editor were lost: the per-sample save worked (it is the Gradio
+// `/save_sample_edit` call above) and only the final persist failed.
 router.post('/save-dataset', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { savePath, datasetName, customTag, tagPosition, allInstrumental, genreRatio } = req.body;
 
     const resolvedPath = (savePath ?? `./datasets/${datasetName ?? 'my_lora_dataset'}.json`).trim();
+    const resolvedName = datasetName ?? 'my_lora_dataset';
 
-    // Use REST API to avoid @gradio/client Radio serialization issues
-    const apiUrl = config.acestep.apiUrl;
-    const body: Record<string, unknown> = {
-      save_path: resolvedPath,
-      dataset_name: datasetName ?? 'my_lora_dataset',
-    };
-    if (customTag !== undefined) body.custom_tag = customTag;
-    if (tagPosition !== undefined) body.tag_position = tagPosition;
-    if (allInstrumental !== undefined) body.all_instrumental = allInstrumental;
-    if (genreRatio !== undefined) body.genre_ratio = genreRatio;
+    // Settings first: the engine serialises its metadata, so they must be on the builder before it
+    // writes the file, or the custom tag / ratio are saved as unset.
+    const settingsOutcome = await applyDatasetSettings({ customTag, tagPosition, allInstrumental, genreRatio });
 
-    const apiRes = await fetch(`${apiUrl}/v1/dataset/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const client = await getGradioClient();
+    const result = await client.predict('/save_dataset', [resolvedPath, resolvedName]);
 
-    if (!apiRes.ok) {
-      const err = await apiRes.json().catch(() => ({})) as any;
-      throw new Error(err?.detail || err?.error || `Save failed: ${apiRes.status}`);
-    }
+    // Returns [status, save_path as a gr.update], so the path has to be read out of the update.
+    const data = result.data as unknown[];
+    const status = typeof data[0] === 'string' ? data[0] : 'Saved';
+    const pathFromEngine = (data[1] as { value?: string } | undefined)?.value;
 
-    const data = await apiRes.json() as any;
     res.json({
-      status: data.status ?? 'Saved',
-      path: data.save_path ?? resolvedPath,
+      status,
+      path: pathFromEngine ?? resolvedPath,
+      settingsApplied: settingsOutcome === 'applied',
+      ...(settingsOutcome === 'incomplete'
+        ? {
+            warning:
+              'Dataset settings were sent partially and were NOT applied. Send customTag, tagPosition, ' +
+              'allInstrumental and genreRatio together.',
+          }
+        : {}),
     });
   } catch (error) {
     console.error('[Training] Save dataset error:', error);
