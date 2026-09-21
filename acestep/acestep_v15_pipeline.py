@@ -163,7 +163,12 @@ def main():
     _default_offload_dit = gpu_config.offload_dit_to_cpu_default if not _is_mac else False
     parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=_default_offload_dit, help=f"Offload DiT to CPU after diffusion (default: {_default_offload_dit}, auto-detected based on GPU tier)")
     _default_quantization = "int8_weight_only" if (gpu_config.quantization_default and not _is_mac) else None
-    parser.add_argument("--quantization", type=str, default=_default_quantization, choices=["int8_weight_only", "int4_weight_only", None], help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier)")
+    # NOTE (Core.fm): int8 is the tier default on this GPU class, but a quantized DiT cannot accept
+    # adapters - AceStepHandler.add_lora refuses with "LoRA loading is not supported on quantized
+    # models". The original choices (["int8_weight_only", "int4_weight_only", None]) made disabling
+    # impossible, because argparse compares the given string against the choices and can never
+    # produce the Python None that the default may hold. "none"/"off" is mapped to None below.
+    parser.add_argument("--quantization", type=str, default=_default_quantization, choices=["int8_weight_only", "int4_weight_only", "none", "off", None], help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier; 'none' disables it, which is required before LoRA adapters can be loaded)")
     parser.add_argument("--download-source", type=str, default=None, choices=["huggingface", "modelscope", "auto"], help="Preferred model download source (default: auto-detect based on network)")
     parser.add_argument("--batch_size", type=int, default=None, help="Default batch size for generation (1-8). Defaults to min(2, GPU_max) if not specified")
 
@@ -176,6 +181,11 @@ def main():
     parser.add_argument("--api-key", type=str, default=None, help="API key for API endpoints authentication")
 
     args = parser.parse_args()
+
+    # "none"/"off" mean unquantized, so that LoRA adapters can be loaded onto the DiT.
+    if isinstance(args.quantization, str) and args.quantization.strip().lower() in ("none", "off", ""):
+        args.quantization = None
+        print("Quantization disabled (--quantization none): adapters can now be loaded.")
 
     # Enable API requires init_service
     if args.enable_api:
