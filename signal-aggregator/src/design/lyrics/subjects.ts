@@ -174,8 +174,18 @@ export function chooseSubject(options: {
   only?: string[];
   /** Ids to avoid: already used in this market, or already used in this run. */
   exclude?: string[];
+  /**
+   * Learned preference per subject id (the `subject:` market weights). A disliked subject is less
+   * likely to win the draw, including when the chart would otherwise have matched it - which is what
+   * makes a thumbs-down change the next design rather than only being recorded.
+   */
+  weights?: Record<string, number>;
 }): SubjectChoice {
   const rng = options.rng;
+  const weightFor = (id: string): number => {
+    const raw = options.weights?.[id];
+    return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(3, Math.max(0.25, raw)) : 1;
+  };
   const pool = options.only && options.only.length > 0
     ? options.only
         .map((id) => PROFILES.get(id))
@@ -200,7 +210,7 @@ export function chooseSubject(options: {
         matched = matched ?? found;
       }
     }
-    return { profile, score, matched };
+    return { profile, score: score * weightFor(profile.id), matched };
   });
 
   const total = scored.reduce((sum, entry) => sum + entry.score, 0);
@@ -217,7 +227,19 @@ export function chooseSubject(options: {
     return { id: best.profile.id, label: best.profile.label, source: 'chart-topic', matched: best.matched };
   }
 
-  const pick = usable[Math.floor(rng() * usable.length)] ?? usable[0];
+  // Nothing matched: rotate (or draw) rather than repeating, still weighted by preference so a
+  // disliked subject does not come back simply because the chart said nothing about it.
+  const weightedPool = usable.map((profile) => ({ profile, weight: weightFor(profile.id) }));
+  const poolTotal = weightedPool.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = rng() * poolTotal;
+  let pick = usable[0];
+  for (const entry of weightedPool) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      pick = entry.profile;
+      break;
+    }
+  }
   return {
     id: pick.id,
     label: pick.label,

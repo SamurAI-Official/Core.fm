@@ -27,8 +27,10 @@ import {
 } from '../design/store.js';
 import { designConcepts } from '../design/designer.js';
 import { getRun, listRuns, type RunRecord } from '../loops/store.js';
-import { getWeights, unratedRuns } from '../loops/ratings.js';
+import { getWeights, unratedRuns, weightNotes } from '../loops/ratings.js';
 import { rateRun } from '../loops/rate.js';
+import { feedbackSummary, insertFeedback, listFeedback } from '../loops/feedback.js';
+import { learnFromFeedback } from '../scoring/feedback.js';
 import { runCycle } from '../loops/cycle.js';
 import { executeConcept } from '../pipeline/run.js';
 import { marketOverview, renderOverviewText } from '../report/overview.js';
@@ -172,9 +174,11 @@ export function createApp(): express.Express {
 
   app.post('/api/ratings', (req: Request, res: Response) => {
     try {
-      const { runId, score, notes, rater } = req.body as {
+      const { runId, score, verdict, reasons, notes, rater } = req.body as {
         runId?: unknown;
         score?: unknown;
+        verdict?: unknown;
+        reasons?: unknown;
         notes?: string;
         rater?: string;
       };
@@ -182,10 +186,109 @@ export function createApp(): express.Express {
         res.status(400).json({ error: 'runId (string) and score (number) are required' });
         return;
       }
-      res.json(rateRun({ runId, score, notes, rater }));
+      res.json(
+        rateRun({
+          runId,
+          score,
+          verdict: verdict === 'dislike' || verdict === 'like' ? verdict : undefined,
+          reasons: Array.isArray(reasons)
+            ? reasons.filter((reason): reason is string => typeof reason === 'string')
+            : undefined,
+          notes,
+          rater,
+        }),
+      );
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
+  });
+
+  /**
+   * Preference on any output, not only on a designed run.
+   *
+   * This is the dislike button's endpoint. A song generated straight from the Create tab has no run
+   * to rate, so the caller sends features instead of an id: the market, and whatever provenance the
+   * output carries (genre, tempo, key, the style prompt, writing style, subject, language, themes).
+   * The update is applied immediately and reported back, so the UI can show what a thumbs-down
+   * actually changed.
+   */
+  app.post('/api/feedback', (req: Request, res: Response) => {
+    try {
+      const { market, verdict, score, reasons, features, source, learn } = req.body as {
+        market?: unknown;
+        verdict?: unknown;
+        score?: unknown;
+        reasons?: unknown;
+        features?: unknown;
+        source?: unknown;
+        learn?: unknown;
+      };
+      if (verdict !== 'like' && verdict !== 'dislike') {
+        res.status(400).json({ error: "verdict must be 'like' or 'dislike'" });
+        return;
+      }
+      const marketCode = typeof market === 'string' && market ? market.toLowerCase() : undefined;
+      const reasonList = Array.isArray(reasons)
+        ? reasons.filter((reason): reason is string => typeof reason === 'string')
+        : [];
+      const bag = features && typeof features === 'object' ? (features as Record<string, unknown>) : {};
+      const cleanFeatures = {
+        genre: typeof bag.genre === 'string' ? bag.genre : undefined,
+        bpm: typeof bag.bpm === 'number' ? bag.bpm : undefined,
+        keyScale: typeof bag.keyScale === 'string' ? bag.keyScale : undefined,
+        style: typeof bag.style === 'string' ? bag.style : undefined,
+        agent: typeof bag.agent === 'string' ? bag.agent : undefined,
+        subject: typeof bag.subject === 'string' ? bag.subject : undefined,
+        language: typeof bag.language === 'string' ? bag.language : undefined,
+        themes: Array.isArray(bag.themes)
+          ? bag.themes.filter((theme): theme is string => typeof theme === 'string')
+          : undefined,
+      };
+
+      const id = insertFeedback({
+        market: marketCode,
+        verdict,
+        score: typeof score === 'number' ? score : undefined,
+        reasons: reasonList,
+        features: cleanFeatures,
+        source: typeof source === 'string' ? source : 'api',
+      });
+      // `learn: false` records a preference without moving anything, for a caller that is reporting
+      // something it does not want acted on yet.
+      const applied =
+        learn === false
+          ? []
+          : learnFromFeedback({
+              market: marketCode,
+              verdict,
+              score: typeof score === 'number' ? score : undefined,
+              reasons: reasonList,
+              features: cleanFeatures,
+            });
+
+      res.json({
+        id,
+        verdict,
+        market: marketCode ?? null,
+        applied,
+        notes: marketCode ? weightNotes(marketCode) : [],
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /** What listeners have said, and what they objected to. */
+  app.get('/api/feedback', (req: Request, res: Response) => {
+    res.json({
+      summary: feedbackSummary(),
+      recent: listFeedback({
+        market: req.query.market ? String(req.query.market).toLowerCase() : undefined,
+        verdict:
+          req.query.verdict === 'like' || req.query.verdict === 'dislike' ? req.query.verdict : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : 20,
+      }),
+    });
   });
 
   app.post('/api/collect', async (req: Request, res: Response) => {

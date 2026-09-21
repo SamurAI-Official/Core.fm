@@ -13,6 +13,10 @@ export interface RateInput {
   runId: string;
   /** 0..1 (0 = poor fit for the market, 1 = strong hit). */
   score: number;
+  /** Set when the score is an explicit thumbs-down, which learns harder than a low score. */
+  verdict?: 'like' | 'dislike';
+  /** Reason ids (`mix`, `lyrics`, `genre`, ...) that attribute the judgement to part of the song. */
+  reasons?: string[];
   notes?: string;
   rater?: string;
 }
@@ -37,6 +41,7 @@ export function rateRun(input: RateInput): RateResult {
     runId: input.runId,
     market: run.market,
     score,
+    verdict: input.verdict,
     notes: input.notes,
     rater: input.rater,
   });
@@ -59,7 +64,13 @@ export function rateRun(input: RateInput): RateResult {
     breakdown: scored.breakdown as unknown as Record<string, unknown>,
   });
 
-  const learning = learnFromScore({ market: run.market, concept, run: rated });
+  const learning = learnFromScore({
+    market: run.market,
+    concept,
+    run: rated,
+    verdict: input.verdict,
+    reasons: input.reasons,
+  });
 
   return {
     runId: input.runId,

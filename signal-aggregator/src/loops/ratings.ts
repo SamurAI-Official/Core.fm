@@ -11,13 +11,27 @@ export function insertRating(input: {
   runId: string;
   market: string;
   score: number;
+  /**
+   * 'dislike' when the rating is an explicit thumbs-down rather than a score on the 0.2-1.0 strip.
+   * Stored because the learner sizes a dislike differently from a low score, and a reader of the
+   * ledger should be able to tell the two apart.
+   */
+  verdict?: 'like' | 'dislike';
   notes?: string;
   rater?: string;
 }): string {
   const id = uuid();
   pool.query(
-    'INSERT INTO ratings (id, run_id, market, score, notes, rater) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, input.runId, input.market, input.score, input.notes ?? null, input.rater ?? 'local'],
+    'INSERT INTO ratings (id, run_id, market, score, verdict, notes, rater) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [
+      id,
+      input.runId,
+      input.market,
+      input.score,
+      input.verdict ?? null,
+      input.notes ?? null,
+      input.rater ?? 'local',
+    ],
   );
   return id;
 }

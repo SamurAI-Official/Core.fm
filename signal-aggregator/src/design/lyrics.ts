@@ -176,6 +176,13 @@ export function writeLyrics(options: {
    * rather than quietly substituting a different arrangement.
    */
   agent?: string;
+  /**
+   * Learned preference per writing style id, from the `agent:` market weights. A style a listener
+   * disliked for this market loses the draw; a style they liked wins it more often.
+   */
+  agentWeights?: Record<string, number>;
+  /** Learned preference per subject id, from the `subject:` market weights. */
+  subjectWeights?: Record<string, number>;
 }): LyricPlan {
   const rng = options.rng ?? seededRng(options.seed ?? 1);
   const resolution = resolvePack(options.language);
@@ -190,6 +197,7 @@ export function writeLyrics(options: {
     rng,
     only: pack.subjectCoverage,
     exclude: options.usedSubjects,
+    weights: options.subjectWeights,
   });
   const subjectRealised = (pack.subjectCoverage ?? []).includes(subject.id);
 
@@ -204,6 +212,7 @@ export function writeLyrics(options: {
     pack,
     exclude: options.usedAgents,
     forced: options.agent,
+    weights: options.agentWeights,
   });
   const agent = agentChoice.agent;
   const agentRealised = coversPrimitives(pack, agent.needs);

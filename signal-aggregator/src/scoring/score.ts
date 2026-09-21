@@ -12,9 +12,7 @@
  */
 import { config } from '../config.js';
 import { clamp, round } from '../lib/util.js';
-import { tempoClass } from '../analysis/tempo.js';
-import { tagVocabulary } from '../design/prompt.js';
-import { getWeight, setWeight } from '../loops/ratings.js';
+import { learnFromFeedback, type FeedbackVerdict } from './feedback.js';
 import type { MarketBrief } from '../briefs/types.js';
 import type { Concept } from '../design/types.js';
 import type { RunRecord } from '../loops/store.js';
@@ -138,30 +136,35 @@ export function scoreRun(input: ScoreInput): ScoreResult {
 }
 
 /** Reinforces or dampens the design choices behind a rated run. */
-export function learnFromScore(input: { market: string; concept: Concept; run: RunRecord }): string[] {
+export function learnFromScore(input: {
+  market: string;
+  concept: Concept;
+  run: RunRecord;
+  /** An explicit dislike is a stronger statement than a low score, and learns differently. */
+  verdict?: FeedbackVerdict;
+  /** Reason ids, when the listener named one, which sharpens what the update blames. */
+  reasons?: string[];
+}): string[] {
   const human = input.run.humanScore;
   if (human === null || human === undefined) return [];
 
-  const delta = config.scoring.learningRate * (clamp(human) - 0.5);
-  if (delta === 0) return [];
-  const applied: string[] = [];
-
-  const bump = (key: string, amount: number): void => {
-    const current = getWeight(input.market, key, 1);
-    const next = clamp(current + amount, 0.25, 3);
-    setWeight(input.market, key, round(next, 4));
-    applied.push(`${key} -> ${round(next, 3)}`);
-  };
-
-  bump(`genre:${input.concept.primaryGenre}`, delta);
-  bump(`bpm:${tempoClass(input.run.reportedBpm ?? input.concept.bpm)}`, delta * 0.6);
-  bump(`key:${input.concept.keyScale}`, delta * 0.5);
-
-  // Reinforce the specific production tags the design actually used.
-  const style = input.concept.style.toLowerCase();
-  for (const tag of tagVocabulary([input.concept.primaryGenre])) {
-    if (style.includes(tag.toLowerCase())) bump(`tag:${tag}`, delta * 0.4);
-  }
-
-  return applied;
+  // One learner for both paths: a run rating and a dislike on a song move the same weights, and two
+  // implementations of "how much does this move a weight" would drift apart within a week.
+  const params = input.concept.params ?? {};
+  return learnFromFeedback({
+    market: input.market,
+    verdict: input.verdict ?? 'like',
+    score: human,
+    reasons: input.reasons,
+    features: {
+      genre: input.concept.primaryGenre,
+      bpm: input.run.reportedBpm ?? input.concept.bpm,
+      keyScale: input.concept.keyScale,
+      style: input.concept.style,
+      agent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
+      subject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,
+      language: typeof params.lyricLanguage === 'string' ? params.lyricLanguage : undefined,
+      themes: Array.isArray(params.lyricThemes) ? (params.lyricThemes as string[]) : undefined,
+    },
+  });
 }
