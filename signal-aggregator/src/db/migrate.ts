@@ -210,6 +210,9 @@ export function runMigrations(): void {
   ensureColumn('runs', 'local_audio', 'TEXT');
   ensureColumn('runs', 'stage', 'TEXT');
   ensureColumn('signals', 'track_key', 'TEXT');
+// Recurring title phrases for the lyric writer, mined from each brief's own sample. Older briefs
+// have no value and fall back to the static regional table.
+ensureColumn('market_briefs', 'themes', 'TEXT');
   backfillTrackKeys();
   exec(`
     CREATE INDEX IF NOT EXISTS idx_signals_track_series ON signals (market, track_key, captured_at);

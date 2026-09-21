@@ -23,6 +23,14 @@ export interface MarketBrief {
   languages: string[];
   topArtists: RankedEntity[];
   topTerms: Array<{ term: string; count: number }>;
+  /**
+   * Recurring title phrases mined from this brief's own sample (`chartThemes`).
+   *
+   * The lyric writer uses these to choose what a song is about, so they come from the collected
+   * signals rather than from the static regional table in `marketFlavor.ts` - that table is only the
+   * fallback for a market whose sample is too thin to have recurring phrasing.
+   */
+  themes: string[];
   summary: string;
   sources: string[];
 }

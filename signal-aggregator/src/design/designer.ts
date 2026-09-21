@@ -9,7 +9,7 @@
 import { config } from '../config.js';
 import { clamp, mulberry32, pickWeighted, seedFromString } from '../lib/util.js';
 import { GENRE_STYLE } from './genreStyle.js';
-import { flavorFor } from './marketFlavor.js';
+import { flavorFor, lyricThemesFor } from './marketFlavor.js';
 import { buildRationale, chooseTitle, composeStylePrompt } from './prompt.js';
 import { lyricProvenance } from './provenance.js';
 import { GENRE_TEMPO_HINTS, clampBpm, suggestKeys, tempoClass } from '../analysis/tempo.js';
@@ -133,8 +133,11 @@ export function designConcepts(request: DesignRequest): Concept[] {
         : brief.languages[1] ?? brief.languages[0];
 
     const energy = GENRE_STYLE[primaryGenre]?.energy ?? 0.6;
+    // What the song is about is chosen from the market's own sample: its chart's recurring title
+    // phrases and its top terms. The static regional themes are only the fallback.
+    const themeChoice = lyricThemesFor(market, brief);
     const lyricPlan = writeLyrics({
-      themes: flavor.themes,
+      themes: themeChoice.themes,
       terms: brief.topTerms.map((t) => t.term),
       energy,
       language: requestedLanguage,
@@ -175,7 +178,7 @@ export function designConcepts(request: DesignRequest): Concept[] {
     });
 
     const title = chooseTitle({
-      themes: flavor.themes,
+      themes: themeChoice.themes,
       terms: brief.topTerms.map((t) => t.term),
       used,
       rng,
@@ -254,6 +257,8 @@ export function designConcepts(request: DesignRequest): Concept[] {
           primaryGenre,
           secondaryGenre,
           ...lyricProvenance(lyricPlan, lyricValidation),
+          lyricThemeSource: themeChoice.source,
+          lyricThemes: themeChoice.themes,
         },
       }),
     );

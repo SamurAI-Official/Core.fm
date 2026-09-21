@@ -9,6 +9,7 @@ import { round, uuid, unique } from '../lib/util.js';
 import { GENRE_TEMPO_HINTS, summarizeTempo } from '../analysis/tempo.js';
 import {
   bpmSamples,
+  chartThemes,
   durationMedian,
   genreWeights,
   momentum as computeMomentum,
@@ -61,6 +62,9 @@ export function buildBrief(market: string): MarketBrief {
   const move = computeMomentum(rows, previousRows);
   const artists = topEntities(rows, 'artist', 10);
   const terms = topTerms(rows, 20);
+  // The phrases the market's own titles keep returning to. The lyric writer picks its subject from
+  // these, so they are read from the sample rather than from the static regional table.
+  const themes = chartThemes(rows, 8);
   const duration = durationMedian(rows);
 
   const brief: MarketBrief = {
@@ -84,6 +88,7 @@ export function buildBrief(market: string): MarketBrief {
     languages: unique([info.language, ...(info.secondaryLanguages ?? [])]),
     topArtists: artists,
     topTerms: terms,
+    themes,
     summary: '',
     sources: unique(rows.map((row) => row.source)),
   };
@@ -97,8 +102,8 @@ function persistBrief(brief: MarketBrief): void {
   pool.query(
     `INSERT INTO market_briefs (id, market, track_count, genre_weights, momentum, bpm_median, bpm_p25,
                                 bpm_p75, tempo_class, key_weights, duration_median, languages,
-                                top_artists, top_terms, summary)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                top_artists, top_terms, themes, summary)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       brief.id,
       brief.market,
@@ -114,6 +119,7 @@ function persistBrief(brief: MarketBrief): void {
       JSON.stringify(brief.languages),
       JSON.stringify(brief.topArtists),
       JSON.stringify(brief.topTerms),
+      JSON.stringify(brief.themes),
       brief.summary,
     ],
   );
@@ -162,6 +168,9 @@ export function latestBrief(market: string): MarketBrief | null {
     languages: jsonParse<string[]>(row.languages, [info.language]),
     topArtists: jsonParse<MarketBrief['topArtists']>(row.top_artists, []),
     topTerms: jsonParse<MarketBrief['topTerms']>(row.top_terms, []),
+    // Absent on briefs written before this column existed, which is exactly when the caller should
+    // fall back to the static regional themes.
+    themes: jsonParse<string[]>(row.themes, []),
     summary: String(row.summary ?? ''),
     sources: [],
   };

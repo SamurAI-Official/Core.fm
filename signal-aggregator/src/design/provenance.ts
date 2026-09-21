@@ -30,6 +30,10 @@ export function lyricProvenance(plan: LyricPlan, validation: LyricValidation): R
     lyricSubjectSource: plan.subjectSource,
     lyricSubjectMatched: plan.subjectMatched,
     lyricSubjectRealised: plan.subjectRealised,
+    // The market's own chart word, when one was usable as the intro ad-lib. This is the one place
+    // the chart's vocabulary enters a lyric verbatim, so it is recorded rather than left to be
+    // discovered by reading - and its absence is equally informative.
+    topicWord: plan.topicWord,
     // The writing style that built this song, and what it did: the engine chain, the
     // arrangement (section -> roles) and the style's own report (the refrain and its
     // readings, the questions asked...). All generic - the UI reads these for every style

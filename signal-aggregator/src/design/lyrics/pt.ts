@@ -257,7 +257,7 @@ export const portuguesePack: LanguagePack = {
   pickQualifier: (rng) => fromBank(rng, QUALIFIERS),
 
   // Chart terms are English/Latin tokens, so the intro uses the hook instead.
-  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
+  introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: boundedReframe('latin'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
