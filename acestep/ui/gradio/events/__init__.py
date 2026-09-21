@@ -2,6 +2,7 @@
 Gradio UI Event Handlers Module
 Main entry point for setting up all event handlers
 """
+import json
 import gradio as gr
 from typing import Optional
 from loguru import logger
@@ -133,6 +134,25 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         fn=dit_handler.set_lora_scale,
         inputs=[generation_section["lora_scale_slider"]],
         outputs=[generation_section["lora_status"]]
+    )
+
+    # Expose the handler's LoRA state as a named API endpoint (Core.fm).
+    #
+    # Clients otherwise have to *infer* whether an adapter is loaded from the messages that
+    # load/unload return, so a page or backend reload leaves the UI believing nothing is loaded while
+    # the engine still has the adapter bound. get_lora_status() already knows the truth; this makes
+    # it reachable, and doubles as the initial value for the status box.
+    def _lora_status_json() -> str:
+        try:
+            return json.dumps(dit_handler.get_lora_status())
+        except Exception as exc:  # a status read must never break the UI
+            logger.warning(f"Could not read LoRA status: {exc}")
+            return json.dumps({"loaded": False, "active": False, "error": str(exc)})
+
+    demo.load(
+        fn=_lora_status_json,
+        outputs=[generation_section["lora_status"]],
+        api_name="lora_status",
     )
     
     # ========== Auto Checkbox Handlers ==========
