@@ -124,6 +124,12 @@ export const translations = {
     loraImportPlaceholder: 'owner/repo-name',
     loraImportButton: 'Import',
     loraManualPath: 'Or enter a path manually',
+    loraSourceImported: 'Imported model',
+    loraSourceCustom: 'Custom path',
+    loraNoneSelected: 'Select a LoRA model...',
+    loraSignInRequired: 'Sign in to select a LoRA model',
+    loraPathRequired: 'Enter a LoRA path',
+
 
     
     // CreatePanel - Audio
@@ -735,6 +741,12 @@ export const translations = {
     loraImportPlaceholder: 'owner/repo-name',
     loraImportButton: '导入',
     loraManualPath: '或手动输入路径',
+    loraSourceImported: '已导入模型',
+    loraSourceCustom: '自定义路径',
+    loraNoneSelected: '请选择 LoRA 模型...',
+    loraSignInRequired: '请登录以选择 LoRA 模型',
+    loraPathRequired: '请输入 LoRA 路径',
+
 
     
     // CreatePanel - Audio
@@ -1346,6 +1358,12 @@ export const translations = {
     loraImportPlaceholder: 'owner/repo-name',
     loraImportButton: 'インポート',
     loraManualPath: 'またはパスを直接入力',
+    loraSourceImported: 'インポート済みモデル',
+    loraSourceCustom: 'カスタムパス',
+    loraNoneSelected: 'LoRA モデルを選択...',
+    loraSignInRequired: 'LoRA モデルを選択するにはサインインしてください',
+    loraPathRequired: 'LoRA パスを入力してください',
+
 
     
     // CreatePanel - Audio
@@ -1957,6 +1975,12 @@ export const translations = {
     loraImportPlaceholder: 'owner/repo-name',
     loraImportButton: '가져오기',
     loraManualPath: '또는 경로 직접 입력',
+    loraSourceImported: '가져온 모델',
+    loraSourceCustom: '사용자 지정 경로',
+    loraNoneSelected: 'LoRA 모델 선택...',
+    loraSignInRequired: 'LoRA 모델을 선택하려면 로그인하세요',
+    loraPathRequired: 'LoRA 경로를 입력하세요',
+
 
     
     // CreatePanel - Audio

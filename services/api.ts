@@ -436,6 +436,8 @@ export const generateApi = {
     }>;
     lorasDir: string;
     active: { loaded: boolean; active: boolean; scale: number; path: string };
+    activeAdapterName: string | null;
+    engine: Record<string, unknown> | null;
   }> => api('/api/lora/list', { token }),
 
   // Pull a Hugging Face LoRA repo in and normalise it for the engine

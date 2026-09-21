@@ -219,7 +219,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   // LoRA Parameters
   const [showLoraPanel, setShowLoraPanel] = useState(false);
-  const [loraPath, setLoraPath] = useState('./lora_output/final/adapter');
+  // The adapter choice and a manual path are kept as separate sources; only one is ever used, so a
+  // stale value in the other cannot be submitted by mistake (see loraEffectivePath).
+  const [loraSource, setLoraSource] = useState<'imported' | 'custom'>('imported');
+  const [loraAdapterName, setLoraAdapterName] = useState('');
+  const [customLoraPath, setCustomLoraPath] = useState('');
   const [loraLoaded, setLoraLoaded] = useState(false);
   const [loraEnabled, setLoraEnabled] = useState(true);
   const [loraScale, setLoraScale] = useState(1.0);
@@ -242,6 +246,17 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [loraListError, setLoraListError] = useState<string | null>(null);
   const [loraImportRepo, setLoraImportRepo] = useState('');
   const [loraImporting, setLoraImporting] = useState(false);
+
+  // The adapter currently chosen in the dropdown
+  const selectedLoraAdapter = useMemo(
+    () => loraAdapters.find((adapter) => adapter.name === loraAdapterName) ?? null,
+    [loraAdapters, loraAdapterName],
+  );
+
+  // The single value the load call uses, taken from the source the user selected. Because the
+  // dropdown and the manual field are separate sources, the one that is not selected can never leak
+  // into the request - which is what previously made a stale default path win over the dropdown.
+  const loraEffectivePath = loraSource === 'imported' ? (selectedLoraAdapter?.path ?? '') : customLoraPath.trim();
 
   // Model selection
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -389,11 +404,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   // LoRA API handlers
   const handleLoraToggle = async () => {
     if (!token) {
-      setLoraError('Please sign in to use LoRA');
+      setLoraError(t('loraSignInRequired'));
       return;
     }
-    if (!loraPath.trim()) {
-      setLoraError('Please enter a LoRA path');
+    if (!loraEffectivePath) {
+      setLoraError(loraSource === 'imported' ? t('loraNoneSelected') : t('loraPathRequired'));
       return;
     }
 
@@ -404,13 +419,20 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       if (loraLoaded) {
         await handleLoraUnload();
       } else {
-        const result = await generateApi.loadLora({ lora_path: loraPath }, token);
+        const result = await generateApi.loadLora({ lora_path: loraEffectivePath }, token);
         setLoraLoaded(true);
+        await refreshLoraAdapters();
         console.log('LoRA loaded:', result?.message);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'LoRA operation failed';
       setLoraError(message);
+      // Reflect the refusal in the panel rather than leaving it looking loaded.
+      if (loraAdapterName) {
+        setLoraAdapters((prev) =>
+          prev.map((a) => (a.name === loraAdapterName ? { ...a, confirmed: false, lastLoadError: message } : a)),
+        );
+      }
       console.error('LoRA error:', err);
     } finally {
       setIsLoraLoading(false);
@@ -462,19 +484,49 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   // Fetch the adapters imported into the engine (drop-in replacements for typing a path)
   const refreshLoraAdapters = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      // Say why, instead of silently showing an empty list - which reads as "no models exist" and
+      // leaves the manual path field as the only way in.
+      setLoraAdapters([]);
+      setLoraListError(t('loraSignInRequired'));
+      return;
+    }
     setLoraListLoading(true);
     setLoraListError(null);
     try {
       const result = await generateApi.listLoras(token);
-      setLoraAdapters(result?.adapters ?? []);
+      const adapters = result?.adapters ?? [];
+      setLoraAdapters(adapters);
+
+      // Trust the engine about what is loaded rather than this component's memory of it: a page or
+      // backend reload used to leave the panel saying "unloaded" while the adapter was still bound.
+      const active = result?.active;
+      if (active) {
+        setLoraLoaded(Boolean(active.loaded));
+        if (typeof active.active === 'boolean') setLoraEnabled(active.active);
+        if (typeof active.scale === 'number') setLoraScale(active.scale);
+      }
+
+      // What the dropdown should show: whatever the engine has loaded, else the last choice, else
+      // nothing - an explicit placeholder beats a phantom selection.
+      const engineName = result?.activeAdapterName ?? '';
+      const loadedName =
+        (engineName && adapters.some((a) => a.name === engineName) ? engineName : '') ||
+        (active?.path ? adapters.find((a) => a.path === active.path)?.name ?? '' : '');
+      const savedName = localStorage.getItem('ace-lora-adapter') ?? '';
+      const candidate = loadedName || savedName;
+      setLoraAdapterName((current) => {
+        if (current && adapters.some((a) => a.name === current)) return current;
+        if (candidate && adapters.some((a) => a.name === candidate)) return candidate;
+        return '';
+      });
     } catch (err) {
       setLoraListError(err instanceof Error ? err.message : 'Could not list LoRA models');
       console.error('Failed to list LoRA models:', err);
     } finally {
       setLoraListLoading(false);
     }
-  }, [token]);
+  }, [token, t]);
 
   // Pull a Hugging Face repo in; the importer normalises keys and synthesises a missing config
   const handleLoraImport = async () => {
@@ -483,8 +535,13 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setLoraError(null);
     try {
       const result = await generateApi.importLora({ repoId: loraImportRepo.trim() }, token);
+      if (result?.name) {
+        // Select what was just imported, so the next step is Load rather than more typing.
+        setLoraSource('imported');
+        setLoraAdapterName(result.name);
+        localStorage.setItem('ace-lora-adapter', result.name);
+      }
       await refreshLoraAdapters();
-      if (result?.dest) setLoraPath(result.dest);
       setLoraImportRepo('');
     } catch (err) {
       setLoraError(err instanceof Error ? err.message : 'Import failed');
@@ -498,12 +555,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   useEffect(() => {
     if (showLoraPanel) void refreshLoraAdapters();
   }, [showLoraPanel, refreshLoraAdapters]);
-
-  // The adapter matching the current path, for the detail line under the dropdown
-  const selectedLoraAdapter = useMemo(
-    () => loraAdapters.find((adapter) => adapter.path === loraPath) ?? null,
-    [loraAdapters, loraPath],
-  );
 
   // Load generation parameters from JSON file
   const handleLoadParamsFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1830,27 +1881,60 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </button>
                   </div>
 
-                  {loraAdapters.length > 0 ? (
-                    <select
-                      value={loraPath}
-                      onChange={(e) => setLoraPath(e.target.value)}
-                      className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
-                    >
-                      {loraAdapters.map((adapter) => (
-                        <option key={adapter.name} value={adapter.path}>
-                          {adapter.name}
-                          {adapter.rank ? ` · r${adapter.rank}` : ''}
-                          {adapter.confirmed ? '' : ` · ${t('loraUnconfirmed')}`}
-                        </option>
-                      ))}
-                    </select>
+                  {/* Explicit source: only the selected one is ever sent to the engine */}
+                  <div className="flex gap-1 p-0.5 bg-zinc-100 dark:bg-black/20 rounded-lg">
+                    {(['imported', 'custom'] as const).map((source) => (
+                      <button
+                        key={source}
+                        onClick={() => setLoraSource(source)}
+                        className={`flex-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                          loraSource === source
+                            ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                        }`}
+                      >
+                        {source === 'imported' ? t('loraSourceImported') : t('loraSourceCustom')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {loraSource === 'imported' ? (
+                    loraAdapters.length > 0 ? (
+                      <select
+                        value={loraAdapterName}
+                        onChange={(e) => {
+                          setLoraAdapterName(e.target.value);
+                          if (e.target.value) localStorage.setItem('ace-lora-adapter', e.target.value);
+                        }}
+                        className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
+                      >
+                        {/* A placeholder, so a value matching no adapter shows as "nothing selected"
+                            rather than silently rendering some other option's label. */}
+                        <option value="">{t('loraNoneSelected')}</option>
+                        {loraAdapters.map((adapter) => (
+                          <option key={adapter.name} value={adapter.name}>
+                            {adapter.name}
+                            {adapter.rank ? ` · r${adapter.rank}` : ''}
+                            {adapter.confirmed ? '' : ` · ${t('loraUnconfirmed')}`}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="text-[11px] text-zinc-500 bg-zinc-50 dark:bg-black/20 border border-dashed border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2">
+                        {loraListLoading ? `${t('loraRefresh')}...` : t('loraNoneImported')}
+                      </div>
+                    )
                   ) : (
-                    <div className="text-[11px] text-zinc-500 bg-zinc-50 dark:bg-black/20 border border-dashed border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2">
-                      {loraListLoading ? `${t('loraRefresh')}...` : t('loraNoneImported')}
-                    </div>
+                    <input
+                      type="text"
+                      value={customLoraPath}
+                      onChange={(e) => setCustomLoraPath(e.target.value)}
+                      placeholder={t('loraPathPlaceholder')}
+                      className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
+                    />
                   )}
 
-                  {selectedLoraAdapter && (
+                  {loraSource === 'imported' && selectedLoraAdapter && (
                     <div className="text-[11px] text-zinc-500 space-y-0.5">
                       <div>
                         {selectedLoraAdapter.confirmed ? t('loraConfirmed') : t('loraUnconfirmed')}
@@ -1894,18 +1978,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </div>
                 </div>
 
-                {/* Manual path, for adapters kept outside the engine's loras directory */}
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraManualPath')}</label>
-                  <input
-                    type="text"
-                    value={loraPath}
-                    onChange={(e) => setLoraPath(e.target.value)}
-                    placeholder={t('loraPathPlaceholder')}
-                    className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
-                  />
-                </div>
-
                 {/* LoRA Load/Unload Toggle */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between py-2 border-t border-zinc-100 dark:border-white/5">
@@ -1921,7 +1993,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </div>
                     <button
                       onClick={handleLoraToggle}
-                      disabled={!loraPath.trim() || isLoraLoading}
+                      disabled={!loraEffectivePath || isLoraLoading}
                       className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         loraLoaded
                           ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/20 hover:from-green-600 hover:to-emerald-700'

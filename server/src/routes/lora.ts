@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
-import { getGradioClient } from '../services/gradio-client.js';
+import { getGradioClient, hasGradioEndpoint } from '../services/gradio-client.js';
 import { resolvePythonPath } from '../services/acestep.js';
 import { resolveAceStepDir } from '../config/acestepPath.js';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
@@ -156,10 +156,46 @@ router.post('/toggle', authMiddleware, async (req: AuthenticatedRequest, res: Re
   }
 });
 
-// GET /api/lora/status — Get current LoRA state
+// GET /api/lora/status — LoRA state, preferring the engine's own view
+//
+// The engine knows which adapter is bound; this module only remembers what it was told. After a
+// backend restart (or a reload during development) that local copy resets to "nothing loaded" while
+// the engine still has the adapter bound, which makes a loaded adapter appear to vanish. The engine
+// is therefore asked first and the local copy is only a fallback.
 router.get('/status', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
+  const engine = await readEngineLoraStatus();
+  if (engine) {
+    loraState = {
+      loaded: Boolean(engine.loaded),
+      active: Boolean(engine.active),
+      scale: typeof engine.scale === 'number' ? engine.scale : loraState.scale,
+      path: loraState.path,
+    };
+  }
   res.json(loraState);
 });
+
+/**
+ * Ask the engine for its LoRA state via the `/lora_status` endpoint that sits alongside the other
+ * LoRA events. Returns null when the engine does not expose it (or cannot be reached), so callers
+ * fall back to the local copy instead of failing.
+ *
+ * The endpoint is probed before use because @gradio/client leaks an unhandled rejection for an
+ * unknown name, which would otherwise take down the server process.
+ */
+async function readEngineLoraStatus(): Promise<Record<string, unknown> | null> {
+  try {
+    if (!(await hasGradioEndpoint('/lora_status'))) return null;
+    const client = await getGradioClient();
+    const result = await client.predict('/lora_status', []);
+    const raw = (result.data as unknown[])[0];
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (error) {
+    console.error('[LoRA] Could not read engine status:', error);
+    return null;
+  }
+}
 
 // GET /api/lora/list — Adapters imported into <engine>/loras, with their manifests
 router.get('/list', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
@@ -203,7 +239,25 @@ router.get('/list', authMiddleware, async (_req: AuthenticatedRequest, res: Resp
         };
       });
 
-    res.json({ adapters, lorasDir: root, active: loraState });
+    // Prefer the engine's view of what is loaded (see /status), and pass its adapter registry too so
+    // a disagreement between this process and the engine is visible rather than silent.
+    const engine = await readEngineLoraStatus();
+    if (engine) {
+      loraState = {
+        loaded: Boolean(engine.loaded),
+        active: Boolean(engine.active),
+        scale: typeof engine.scale === 'number' ? engine.scale : loraState.scale,
+        path: loraState.path,
+      };
+    }
+
+    res.json({
+      adapters,
+      lorasDir: root,
+      active: loraState,
+      activeAdapterName: (engine?.active_adapter as string | undefined) ?? null,
+      engine: engine ?? null,
+    });
   } catch (error) {
     console.error('[LoRA] List error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to list adapters' });
