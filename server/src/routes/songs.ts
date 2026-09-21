@@ -490,6 +490,143 @@ router.post('/:id/like', authMiddleware, async (req: AuthenticatedRequest, res: 
   }
 });
 
+/**
+ * The hard no: a verdict on one response to one prompt.
+ *
+ * `POST /:id/like` stays the like toggle the player already had. This is the general verdict, and the
+ * two are reconciled here - a dislike clears the like and a like clears the dislike - so a song can
+ * never be both. `verdict: 'none'` clears whatever is there, which is what a second click on the same
+ * button means.
+ *
+ * Dislikes are why this exists. Without them a listener can only say "less of this" through a rating
+ * on a designed run they may never have made, and cannot say "not this response to my prompt" at all.
+ * The reasons travel with the verdict because they decide what the judgement is *about* - the prompt
+ * mapping, the words, or the mix; a verdict with no reason is still valid and simply blames everything
+ * the response carried.
+ */
+router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const verdict = String((req.body as { verdict?: unknown })?.verdict ?? '');
+    if (!['like', 'dislike', 'none'].includes(verdict)) {
+      res.status(400).json({ error: "verdict must be 'like', 'dislike' or 'none'" });
+      return;
+    }
+    const rawReasons = (req.body as { reasons?: unknown })?.reasons;
+    const reasons = Array.isArray(rawReasons)
+      ? rawReasons.filter((reason): reason is string => typeof reason === 'string').slice(0, 6)
+      : [];
+
+    const song = await client.query('SELECT id FROM songs WHERE id = $1', [req.params.id]);
+    if (song.rows.length === 0) {
+      res.status(404).json({ error: 'song not found' });
+      return;
+    }
+
+    await client.query('BEGIN');
+    const liked = await client.query(
+      'SELECT 1 FROM liked_songs WHERE user_id = $1 AND song_id = $2',
+      [req.user!.id, req.params.id],
+    );
+    const wasLiked = liked.rows.length > 0;
+
+    // A like clears the disagreement before it is recorded, so the projections (liked_songs,
+    // like_count) and the verdict table can never tell different stories.
+    if (verdict === 'like' && !wasLiked) {
+      await client.query('INSERT INTO liked_songs (user_id, song_id) VALUES ($1, $2)', [
+        req.user!.id,
+        req.params.id,
+      ]);
+      await client.query('UPDATE songs SET like_count = like_count + 1 WHERE id = $1', [req.params.id]);
+    } else if (verdict !== 'like' && wasLiked) {
+      await client.query('DELETE FROM liked_songs WHERE user_id = $1 AND song_id = $2', [
+        req.user!.id,
+        req.params.id,
+      ]);
+      await client.query(
+        'UPDATE songs SET like_count = GREATEST(like_count - 1, 0) WHERE id = $1',
+        [req.params.id],
+      );
+    }
+
+    if (verdict === 'none') {
+      await client.query('DELETE FROM song_feedback WHERE user_id = $1 AND song_id = $2', [
+        req.user!.id,
+        req.params.id,
+      ]);
+    } else {
+      await client.query(
+        `INSERT INTO song_feedback (user_id, song_id, verdict, reasons)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT(user_id, song_id)
+         DO UPDATE SET verdict = excluded.verdict, reasons = excluded.reasons, updated_at = datetime('now')`,
+        [req.user!.id, req.params.id, verdict, JSON.stringify(reasons)],
+      );
+    }
+    await client.query('COMMIT');
+
+    const counts = await pool.query('SELECT like_count FROM songs WHERE id = $1', [req.params.id]);
+    res.json({
+      verdict,
+      liked: verdict === 'like',
+      disliked: verdict === 'dislike',
+      likeCount: Number(counts.rows[0]?.like_count ?? 0),
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Song feedback error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+});
+
+/** This user's verdict on this response, and the prompt it answered. */
+router.get('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Placeholders are bound in the order they appear in the SQL, not by their numbers: the pool
+    // rewrites every `$n` to `?` (see db/pool.ts), so `$2` before `$1` swaps the two values. Hence
+    // the user first (it appears first, in the join) and the song second.
+    const result = await pool.query(
+      `SELECT f.verdict, f.reasons, f.updated_at, s.prompt_id
+       FROM songs s
+       LEFT JOIN song_feedback f ON f.song_id = s.id AND f.user_id = $1
+       WHERE s.id = $2`,
+      [req.user!.id, req.params.id],
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'song not found' });
+      return;
+    }
+    const row = result.rows[0];
+    res.json({
+      verdict: row.verdict ?? null,
+      reasons: row.reasons ? JSON.parse(String(row.reasons)) : [],
+      updatedAt: row.updated_at ?? null,
+      promptId: row.prompt_id ?? null,
+    });
+  } catch (error) {
+    console.error('Get song feedback error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** This user's verdicts, so the buttons render correctly after a reload. */
+router.get('/feedback/mine', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await pool.query(
+      'SELECT song_id, verdict FROM song_feedback WHERE user_id = $1',
+      [req.user!.id],
+    );
+    const verdicts: Record<string, string> = {};
+    for (const row of result.rows) verdicts[String(row.song_id)] = String(row.verdict);
+    res.json({ verdicts });
+  } catch (error) {
+    console.error('List song feedback error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get liked songs
 router.get('/liked/list', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {

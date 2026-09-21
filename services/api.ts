@@ -204,6 +204,33 @@ export const songsApi = {
   toggleLike: (id: string, token: string): Promise<{ liked: boolean }> =>
     api(`/api/songs/${id}/like`, { method: 'POST', token }),
 
+  /**
+   * A verdict on one response to one prompt: 'dislike' is the hard no, 'like' is its opposite, and
+   * 'none' clears whatever is set (a second click on the same button). The server reconciles the two
+   * projections, so a song can never end up both liked and disliked.
+   *
+   * `reasons` is the listener's account of what was wrong - off-prompt, bad-lyrics, muddy,
+   * wrong-genre, not-my-kind - and it is optional: a hard no with no reason is still a hard no, it
+   * just blames everything the response carried rather than a part of it.
+   */
+  setFeedback: (
+    id: string,
+    verdict: 'like' | 'dislike' | 'none',
+    reasons: string[] = [],
+    token?: string,
+  ): Promise<{ verdict: string; liked: boolean; disliked: boolean; likeCount: number }> =>
+    api(`/api/songs/${id}/feedback`, { method: 'POST', body: { verdict, reasons }, token }),
+
+  getFeedback: (
+    id: string,
+    token: string,
+  ): Promise<{ verdict: 'like' | 'dislike' | null; reasons: string[]; promptId: string | null }> =>
+    api(`/api/songs/${id}/feedback`, { token }),
+
+  /** Every verdict this user has given, keyed by song id, so the buttons survive a reload. */
+  getMyFeedback: (token: string): Promise<{ verdicts: Record<string, 'like' | 'dislike'> }> =>
+    api('/api/songs/feedback/mine', { token }),
+
   getLikedSongs: async (token: string): Promise<{ songs: Song[] }> => {
     const result = await api('/api/songs/liked/list', { token }) as { songs: Song[] };
     return { songs: transformSongs(result.songs) };

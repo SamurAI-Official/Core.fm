@@ -54,6 +54,11 @@ function AppContent() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [likedSongIds, setLikedSongIds] = useState<Set<string>>(new Set());
+  /**
+   * Songs this user has given a hard no. Tracked separately from "not liked": clearing a like is not
+   * the same statement as rejecting a response, and only the second one teaches anything.
+   */
+  const [dislikedSongIds, setDislikedSongIds] = useState<Set<string>>(new Set());
   const [referenceTracks, setReferenceTracks] = useState<ReferenceTrack[]>([]);
   const [playQueue, setPlayQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -308,9 +313,11 @@ function AppContent() {
 
     const loadSongs = async () => {
       try {
-        const [mySongsRes, likedSongsRes] = await Promise.all([
+        const [mySongsRes, likedSongsRes, feedbackRes] = await Promise.all([
           songsApi.getMySongs(token),
-          songsApi.getLikedSongs(token)
+          songsApi.getLikedSongs(token),
+          // Not fatal if it fails: the buttons then start empty and a click still records the verdict.
+          songsApi.getMyFeedback(token).catch(() => ({ verdicts: {} as Record<string, 'like' | 'dislike'> })),
         ]);
 
         const mapSong = (s: any): Song => ({
@@ -354,6 +361,13 @@ function AppContent() {
 
         const likedIds = new Set(likedSongs.map(s => s.id));
         setLikedSongIds(likedIds);
+
+        const dislikedIds = new Set(
+          Object.entries(feedbackRes.verdicts ?? {})
+            .filter(([, verdict]) => verdict === 'dislike')
+            .map(([songId]) => songId),
+        );
+        setDislikedSongIds(dislikedIds);
 
       } catch (error) {
         console.error('Failed to load songs:', error);
@@ -1022,6 +1036,75 @@ function AppContent() {
     }
   };
 
+  /**
+   * The hard no: "not this response to my prompt".
+   *
+   * Clicking again clears it, because a hard no is a statement the listener must be able to take back
+   * (and because the alternative - a one-way button - makes the first misclick permanent). A dislike
+   * and a like are mutually exclusive: the local state removes the like here, and the server does the
+   * same to its own projections, so the two can never disagree.
+   *
+   * `reasons` is deliberately not collected yet; the click records the disagreement, and the reason
+   * chips are a follow-up. Until then every verdict is unattributed, which the aggregator's ledger
+   * counts separately rather than pretending it is a specific complaint.
+   */
+  const toggleDislike = async (songId: string) => {
+    if (!token) return;
+
+    const isDisliked = dislikedSongIds.has(songId);
+    const wasLiked = likedSongIds.has(songId);
+    const nextVerdict: 'dislike' | 'none' = isDisliked ? 'none' : 'dislike';
+
+    // Optimistic: the button must respond to the click, not to the network.
+    setDislikedSongIds(prev => {
+      const next = new Set(prev);
+      if (isDisliked) next.delete(songId);
+      else next.add(songId);
+      return next;
+    });
+    if (!isDisliked && wasLiked) {
+      setLikedSongIds(prev => {
+        const next = new Set(prev);
+        next.delete(songId);
+        return next;
+      });
+      setSongs(prev => prev.map(s => (s.id === songId ? { ...s, likeCount: Math.max(0, (s.likeCount || 0) - 1) } : s)));
+      if (selectedSong?.id === songId) {
+        setSelectedSong(prev => (prev ? { ...prev, likeCount: Math.max(0, (prev.likeCount || 0) - 1) } : null));
+      }
+    }
+
+    try {
+      const result = await songsApi.setFeedback(songId, nextVerdict, [], token);
+      setSongs(prev => prev.map(s => (s.id === songId ? { ...s, likeCount: result.likeCount } : s)));
+      if (selectedSong?.id === songId) {
+        setSelectedSong(prev => (prev ? { ...prev, likeCount: result.likeCount } : null));
+      }
+      setLikedSongIds(prev => {
+        const next = new Set(prev);
+        if (result.liked) next.add(songId);
+        else next.delete(songId);
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to record dislike:', error);
+      // Revert the button so the UI never claims a verdict the server does not have.
+      setDislikedSongIds(prev => {
+        const next = new Set(prev);
+        if (isDisliked) next.add(songId);
+        else next.delete(songId);
+        return next;
+      });
+      if (!isDisliked && wasLiked) {
+        setLikedSongIds(prev => {
+          const next = new Set(prev);
+          next.add(songId);
+          return next;
+        });
+      }
+    }
+  };
+
   const handleDeleteSong = (song: Song) => {
     handleDeleteSongs([song]);
   };
@@ -1449,6 +1532,8 @@ function AppContent() {
         onToggleRepeat={() => setRepeatMode(prev => prev === 'none' ? 'all' : prev === 'all' ? 'one' : 'none')}
         isLiked={currentSong ? likedSongIds.has(currentSong.id) : false}
         onToggleLike={() => currentSong && toggleLike(currentSong.id)}
+        isDisliked={currentSong ? dislikedSongIds.has(currentSong.id) : false}
+        onToggleDislike={() => currentSong && toggleDislike(currentSong.id)}
         onNavigateToSong={handleNavigateToSong}
         onOpenVideo={() => currentSong && openVideoGenerator(currentSong)}
         onReusePrompt={() => currentSong && handleReuse(currentSong)}

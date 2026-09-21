@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Song } from '../types';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, Download, Heart, MoreVertical, Volume2, VolumeX, Maximize2, Repeat1, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, Download, Heart, ThumbsDown, MoreVertical, Volume2, VolumeX, Maximize2, Repeat1, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../context/ResponsiveContext';
 import { useI18n } from '../context/I18nContext';
@@ -28,6 +28,13 @@ interface PlayerProps {
     onToggleRepeat: () => void;
     isLiked: boolean;
     onToggleLike: () => void;
+    /**
+     * The hard no on this response. Optional so an embed that only wants a like button can omit it,
+     * and distinct from `!isLiked`: telling the model "not this" is a different statement from
+     * clearing a like.
+     */
+    isDisliked?: boolean;
+    onToggleDislike?: () => void;
     onNavigateToSong?: (songId: string) => void;
     onOpenVideo?: () => void;
     onReusePrompt?: () => void;
@@ -56,6 +63,8 @@ export const Player: React.FC<PlayerProps> = ({
     onToggleRepeat,
     isLiked,
     onToggleLike,
+    isDisliked,
+    onToggleDislike,
     onNavigateToSong,
     onOpenVideo,
     onReusePrompt,
@@ -202,10 +211,20 @@ export const Player: React.FC<PlayerProps> = ({
                             </div>
                             <button
                                 onClick={onToggleLike}
+                                title="Like"
                                 className={`p-2 tap-highlight-none ${isLiked ? 'text-pink-600 dark:text-pink-500' : 'text-zinc-400 dark:text-white/50'}`}
                             >
                                 <Heart size={24} fill={isLiked ? "currentColor" : "none"} />
                             </button>
+                            {onToggleDislike && (
+                                <button
+                                    onClick={onToggleDislike}
+                                    title="Not this response"
+                                    className={`p-2 tap-highlight-none ${isDisliked ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-white/50'}`}
+                                >
+                                    <ThumbsDown size={24} fill={isDisliked ? "currentColor" : "none"} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -381,10 +400,20 @@ export const Player: React.FC<PlayerProps> = ({
                     <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                             onClick={onToggleLike}
+                            title="Like"
                             className={`p-2 tap-highlight-none ${isLiked ? 'text-pink-600 dark:text-pink-500' : 'text-zinc-400'}`}
                         >
                             <Heart size={20} fill={isLiked ? "currentColor" : "none"} />
                         </button>
+                        {onToggleDislike && (
+                            <button
+                                onClick={onToggleDislike}
+                                title="Not this response"
+                                className={`p-2 tap-highlight-none ${isDisliked ? 'text-zinc-900 dark:text-white' : 'text-zinc-400'}`}
+                            >
+                                <ThumbsDown size={20} fill={isDisliked ? "currentColor" : "none"} />
+                            </button>
+                        )}
                         <button
                             onClick={onPrevious}
                             className="p-2 text-zinc-700 dark:text-zinc-300 tap-highlight-none"
@@ -580,10 +609,20 @@ export const Player: React.FC<PlayerProps> = ({
                             <div className="flex items-center justify-center gap-4 text-zinc-400 dark:text-white/50">
                                 <button
                                     onClick={onToggleLike}
+                                    title="Like"
                                     className={`p-3 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors ${isLiked ? 'text-pink-600 dark:text-pink-500' : ''}`}
                                 >
                                     <Heart size={22} fill={isLiked ? "currentColor" : "none"} />
                                 </button>
+                                {onToggleDislike && (
+                                    <button
+                                        onClick={onToggleDislike}
+                                        title="Not this response"
+                                        className={`p-3 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors ${isDisliked ? 'text-zinc-900 dark:text-white' : ''}`}
+                                    >
+                                        <ThumbsDown size={22} fill={isDisliked ? "currentColor" : "none"} />
+                                    </button>
+                                )}
                                 {onOpenVideo && (
                                     <button
                                         onClick={onOpenVideo}
@@ -676,10 +715,20 @@ export const Player: React.FC<PlayerProps> = ({
                     </div>
                     <button
                         onClick={onToggleLike}
+                        title="Like"
                         className={`ml-1 sm:ml-2 transition-colors flex-shrink-0 hidden sm:block ${isLiked ? 'text-pink-600 dark:text-pink-500' : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-white'}`}
                     >
                         <Heart size={18} fill={isLiked ? "currentColor" : "none"} />
                     </button>
+                    {onToggleDislike && (
+                        <button
+                            onClick={onToggleDislike}
+                            title="Not this response"
+                            className={`ml-1 sm:ml-2 transition-colors flex-shrink-0 hidden sm:block ${isDisliked ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-white'}`}
+                        >
+                            <ThumbsDown size={18} fill={isDisliked ? "currentColor" : "none"} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Controls */}
