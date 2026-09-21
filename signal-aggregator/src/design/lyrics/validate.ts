@@ -52,6 +52,22 @@ export interface LyricValidation {
    * repeats it used.
    */
   repeatedLines: number;
+  /**
+   * How many times the most-sung line is sung across the *whole* song.
+   *
+   * `repetition` above counts duplicates inside one section, which is where a defect
+   * usually hides - but it cannot see a hook sung once in each of seven sections, so a
+   * style can reach half a song being a single line while reporting no repetition at all.
+   * This measures that directly, for every policy, because it is a fact about the song
+   * rather than a verdict on it.
+   */
+  maxLineRepeats: number;
+  /** Share of sung lines taken by that line. */
+  maxLineShare: number;
+  /** Distinct lines as a share of sung lines - the other side of the same measurement. */
+  distinctLineShare: number;
+  /** The most-sung line itself, for a failure message or the UI. */
+  mostSungLine: string;
   /** Share of characters written in the expected script. */
   scriptConsistency: number;
   cliches: string[];
@@ -362,6 +378,10 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
       rhymeDensity: 0,
       repetition: 0,
       repeatedLines: 0,
+      maxLineRepeats: 0,
+      maxLineShare: 0,
+      distinctLineShare: 0,
+      mostSungLine: '',
       scriptConsistency: 1,
       cliches: [],
       issues: ['no lyric lines to validate'],
@@ -407,6 +427,27 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
   }
   const repeatedLines = duplicated;
   const repetition = repetitionPolicy === 'device' ? 0 : round(duplicated / metrics.length, 3);
+
+  // The same question asked of the whole song rather than of one section. Sameness is judged as
+  // the writer and the per-section pass judge it (lower-cased, parentheses removed), so a line and
+  // its parenthesised backing-vocal echo count as one line here as well.
+  const wholeSong = new Map<string, number>();
+  const keyOf = (line: string): string => line.toLowerCase().replace(/[()]/g, '').trim();
+  for (const metric of metrics) {
+    const key = keyOf(metric.line);
+    wholeSong.set(key, (wholeSong.get(key) ?? 0) + 1);
+  }
+  let maxLineRepeats = 0;
+  let mostSungLine = '';
+  for (const metric of metrics) {
+    const count = wholeSong.get(keyOf(metric.line)) ?? 0;
+    if (count > maxLineRepeats) {
+      maxLineRepeats = count;
+      mostSungLine = metric.line;
+    }
+  }
+  const maxLineShare = metrics.length > 0 ? round(maxLineRepeats / metrics.length, 3) : 0;
+  const distinctLineShare = metrics.length > 0 ? round(wholeSong.size / metrics.length, 3) : 0;
 
   // Measured over lyric lines only. Section headers ("[Verse 1]", "[Chorus]") are
   // engine control tokens, not sung text - counting them cost every non-Latin
@@ -471,6 +512,10 @@ export function validateLyrics(lyrics: string, options: ValidateOptions): LyricV
     rhymeDensity,
     repetition,
     repeatedLines,
+    maxLineRepeats,
+    maxLineShare,
+    distinctLineShare,
+    mostSungLine,
     scriptConsistency,
     cliches,
     issues,

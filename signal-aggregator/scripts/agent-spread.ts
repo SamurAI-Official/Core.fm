@@ -27,6 +27,32 @@ import { plainText, sectionMap } from '../src/design/lyrics/validate.js';
 const MIN_SCORE = 0.6;
 const MIN_METER_FIT = 0.5;
 const MIN_SCRIPT_CONSISTENCY = 0.9;
+
+/**
+ * Repetition ceilings.
+ *
+ * The *floors* belong to the styles - `hook-variation-payoff` must sing its claim 4+ times, a
+ * refrain 3+ - and a floor alone lets a device style drift until one line is half the song. The
+ * first 120 designs averaged 63% duplicated lines in `hook-variation-payoff` with one line sung
+ * 9x out of 16, where the style's own contract asks for 4. These are ceilings on the *whole*
+ * song (`maxLineShare` / `distinctLineShare`), not on one section, because a hook spread across
+ * seven sections is invisible to a per-section count - which is exactly how that drift went
+ * unnoticed.
+ *
+ * `maxLineShare` is the sharp one: a line that is half a song is a tic, and the measurement
+ * separates the styles that had drifted (50-56%) from every style that had not (23-29%).
+ *
+ * `distinctLineShare` is the blunter one, because a repeated chorus is a legitimate cost - a
+ * 3-line chorus sung twice spends a fifth of a short song on itself, and that is songwriting,
+ * not a defect. So the bar sits *below* the range legitimate styles occupy (fault styles measure
+ * 50-58% distinct today) rather than at it, and its job is to catch a collapse into a loop
+ * rather than to score taste: the five styles that drifted were down at 37-47%.
+ */
+const MAX_DEVICE_LINE_SHARE = 0.4;
+const MIN_DEVICE_DISTINCT_SHARE = 0.5;
+const MAX_FAULT_LINE_SHARE = 0.35;
+const MIN_FAULT_DISTINCT_SHARE = 0.45;
+
 const SEEDS = [1, 2, 3, 4];
 const PRINT = process.argv.includes('--print');
 
@@ -97,6 +123,25 @@ function checkQuality(
     fail(`${label}: meterFit ${validation.meterFit} (target ${validation.targetSyllables}) - ${offenders.join(' | ')}`);
   }
   if (validation.score < MIN_SCORE) fail(`${label}: score ${validation.score}`);
+
+  // Repetition across the whole song, which is where a hook swallows a lyric. Section-level
+  // repetition is already policed by `repetition` above and by each style's own engine checks;
+  // this is the ceiling those two cannot see.
+  const device = plan.repetitionPolicy === 'device';
+  const maxShare = device ? MAX_DEVICE_LINE_SHARE : MAX_FAULT_LINE_SHARE;
+  const minDistinct = device ? MIN_DEVICE_DISTINCT_SHARE : MIN_FAULT_DISTINCT_SHARE;
+  if (validation.maxLineShare > maxShare) {
+    fail(
+      `${label}: one line is ${(validation.maxLineShare * 100).toFixed(0)}% of the song ` +
+        `(${validation.maxLineRepeats}x, ceiling ${(maxShare * 100).toFixed(0)}%): "${validation.mostSungLine}"`,
+    );
+  }
+  if (validation.distinctLineShare < minDistinct) {
+    fail(
+      `${label}: only ${(validation.distinctLineShare * 100).toFixed(0)}% of the lines are distinct ` +
+        `(floor ${(minDistinct * 100).toFixed(0)}%)`,
+    );
+  }
   if (plan.agentRealised !== expectedRealised) {
     fail(`${label}: agentRealised ${plan.agentRealised}, expected ${expectedRealised}`);
   }

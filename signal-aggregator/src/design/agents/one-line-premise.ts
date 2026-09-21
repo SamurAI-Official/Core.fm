@@ -25,9 +25,11 @@ export const oneLinePremiseAgent: WritingAgent = {
     const sections: AgentSection[] = [
       { section: 'Intro', roles: ['premise'], lines: 1, variant: 'premise' },
       { section: 'Verse 1', roles: ['implication'], lines: 4, variant: 'verse-1' },
-      { section: 'Chorus', roles: ['premise', 'pressure'], lines: 3, variant: 'chorus' },
+      // The premise and the claim it contradicts, and that is all: the chorus used to bracket
+      // itself with the premise as well, which is where its fourth and fifth statements came from.
+      { section: 'Chorus', roles: ['premise', 'pressure'], lines: 2, variant: 'chorus' },
       { section: 'Verse 2', roles: ['implication (image)'], lines: 3, variant: 'verse-2' },
-      { section: 'Chorus', roles: ['premise', 'pressure'], lines: 3, repeatOf: 'chorus' },
+      { section: 'Chorus', roles: ['premise', 'pressure'], lines: 2, repeatOf: 'chorus' },
     ];
     if (energy >= 0.45) {
       sections.push({ section: 'Bridge', roles: ['premise (bare)'], lines: 2, variant: 'bridge' });
@@ -64,9 +66,9 @@ export const oneLinePremiseAgent: WritingAgent = {
 
       case 'chorus':
       default:
-        // The premise, then the claim on its own, then the premise again: the retraction is
-        // what keeps the line from settling.
-        return takeLines([premiseOf(ctx, pack), ctx.hook, premiseOf(ctx, pack)], section.lines);
+        // The premise, then the claim on its own: the retraction is what keeps the line from
+        // settling, and one statement per chorus is enough to carry it.
+        return takeLines([premiseOf(ctx, pack), ctx.hook], section.lines);
     }
   },
 

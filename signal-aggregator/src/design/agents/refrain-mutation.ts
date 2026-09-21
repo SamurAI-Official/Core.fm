@@ -13,6 +13,7 @@
  * Needs no new bank material: every context line comes from the pack's existing stages.
  */
 import { takeLines, type LyricContext, type LanguagePack } from '../lyrics/types.js';
+import { withoutLine } from './shared.js';
 import type { AgentPlan, AgentSection, AgentReport, WritingAgent } from './types.js';
 
 /** Context line before each restatement of the refrain, in song order. */
@@ -46,13 +47,16 @@ export const refrainMutationAgent: WritingAgent = {
     const sections: AgentSection[] = [
       // Stated plainly, with nothing around it yet.
       { section: 'Intro', roles: ['refrain', 'plain reading'], lines: 1, variant: 'intro' },
-      // Literal reading: where and when the singer stands.
-      { section: 'Verse 1', roles: ['context (literal)', 'refrain'], lines: 4, variant: 'verse-1' },
-      { section: 'Chorus', roles: ['refrain', 'turn'], lines: 4, variant: 'chorus' },
+      // Literal reading: the verse says where the singer stands, and the refrain arrives with the
+      // chorus immediately behind it - the context still precedes the phrase, so the reading lands
+      // across the section break rather than inside one section. Six of the refrain's eleven
+      // restatements used to come from the verses and from singing it three times per chorus.
+      { section: 'Verse 1', roles: ['context (literal)'], lines: 3, variant: 'verse-1' },
+      { section: 'Chorus', roles: ['refrain', 'turn'], lines: 2, variant: 'chorus' },
       // Second reading: the same words, now about doubt.
-      { section: 'Verse 2', roles: ['context (doubt)', 'refrain'], lines: 4, variant: 'verse-2' },
+      { section: 'Verse 2', roles: ['context (doubt)'], lines: 3, variant: 'verse-2' },
       // A repeated chorus is a repeated chorus: identical lines, by construction.
-      { section: 'Chorus', roles: ['refrain', 'turn'], lines: 4, repeatOf: 'chorus' },
+      { section: 'Chorus', roles: ['refrain', 'turn'], lines: 2, repeatOf: 'chorus' },
     ];
 
     // A shorter song for a low-energy ballad: keep the three readings, drop the middle verse.
@@ -75,10 +79,10 @@ export const refrainMutationAgent: WritingAgent = {
         return takeLines([ctx.hook], section.lines);
 
       case 'verse-1':
-        return takeLines([...contextLines(pack, ctx, 'perspective', 3), ctx.hook], section.lines);
+        return takeLines(withoutLine(contextLines(pack, ctx, 'perspective', 3), ctx.hook), section.lines);
 
       case 'verse-2':
-        return takeLines([...contextLines(pack, ctx, 'uncertainty', 3), ctx.hook], section.lines);
+        return takeLines(withoutLine(contextLines(pack, ctx, 'uncertainty', 3), ctx.hook), section.lines);
 
       case 'bridge':
         return takeLines([...contextLines(pack, ctx, 'metaphor', 2), ctx.hook], section.lines);
@@ -88,9 +92,10 @@ export const refrainMutationAgent: WritingAgent = {
 
       case 'chorus':
       default: {
-        // refrain, refrain, turn, refrain - the turn is what re-reads the phrase. The turn
-        // comes from the contradiction bank and is guaranteed not to be the hook itself.
-        return takeLines([ctx.hook, ctx.hook, turnLine(pack, ctx), ctx.hook], section.lines);
+        // refrain, turn - the turn is what re-reads the phrase, and one restatement per chorus is
+        // enough for it to be the phrase the song teaches. It used to be refrain, refrain, turn,
+        // refrain, which is where the eleventh restatement came from.
+        return takeLines([ctx.hook, turnLine(pack, ctx)], section.lines);
       }
     }
   },
