@@ -104,10 +104,14 @@ class UpdateSampleRequest(BaseModel):
 
 
 class PreprocessDatasetRequest(BaseModel):
-    """Request payload for dataset tensor preprocessing."""
+    """Request payload for dataset tensor preprocessing.
+
+    There is deliberately no ``skip_existing`` here. It used to be declared and forwarded to
+    ``DatasetBuilder.preprocess_to_tensors``, which has no such parameter (and no skip logic at all),
+    so every preprocessing call raised ``TypeError: got an unexpected keyword argument``.
+    """
 
     output_dir: str = Field(..., description="Output directory for preprocessed tensors")
-    skip_existing: bool = Field(default=False, description="Skip tensors that already exist (by sample id filename)")
 
 
 def _serialize_samples(builder: Any) -> list[Dict[str, Any]]:
@@ -665,7 +669,8 @@ def register_training_dataset_routes(
                 builder.preprocess_to_tensors,
                 dit_handler=handler,
                 output_dir=request.output_dir.strip(),
-                skip_existing=request.skip_existing,
+                # No skip_existing: preprocess_to_tensors has no such parameter (and no skip logic),
+                # so forwarding it raised TypeError before a single tensor was written.
                 progress_callback=None,
             )
 
@@ -749,7 +754,8 @@ def register_training_dataset_routes(
                 output_paths, status = builder.preprocess_to_tensors(
                     dit_handler=handler,
                     output_dir=request.output_dir.strip(),
-                    skip_existing=request.skip_existing,
+                    # See the note on the synchronous route: preprocess_to_tensors takes no
+                    # skip_existing argument.
                     progress_callback=progress_callback,
                 )
 

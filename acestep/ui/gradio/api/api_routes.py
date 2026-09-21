@@ -5,7 +5,9 @@ Add API endpoints compatible with api_server.py and CustomAceStep to Gradio appl
 import json
 import os
 import random
+import tempfile
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -582,6 +584,84 @@ def _add_cors_middleware_post_launch(app):
         _add_cors_middleware(app)
 
 
+def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
+    """Write JSON atomically to reduce corruption risk during incremental saves.
+
+    Same contract as ``api_server._atomic_write_json``, which the dataset routes are written against.
+    """
+
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", suffix=".json", dir=directory or None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
+
+
+def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    """Append a single JSONL record for audit/progress tracing."""
+
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+@contextmanager
+def _temporary_llm_model(app, llm, lm_model_path):
+    """Temporarily switch the LM model for a critical section (used by auto-labeling).
+
+    Delegates to the REST server's implementation rather than copying it, but imports it lazily:
+    ``acestep.api_server`` builds its own FastAPI app at module scope, so importing it should be a
+    consequence of actually needing a model swap, not of starting the Gradio app.
+    """
+    from acestep.api_server import _temporary_llm_model as _implementation
+
+    with _implementation(app, llm, lm_model_path):
+        yield
+
+
+def _register_training_dataset_routes(app, dit_handler) -> None:
+    """Register the dataset/training REST endpoints on the Gradio application.
+
+    ``acestep.api.train_api_dataset_service`` implements the complete dataset API - scan, load,
+    save, preprocess, auto-label, sample CRUD - and ``acestep.api.train_api_service`` composes it
+    with the LoRA/LoKr start routes. For the Gradio pipeline **nothing ever called either of them**,
+    so every ``/v1/dataset/*`` request answered 404 ("Not Found") even though the code exists and is
+    registered by ``api_server.py``. That gap is why dataset saving and preprocessing were impossible
+    through the REST paths the clients were written against.
+
+    Registering them here means preprocessing runs **in this process**, where the models are already
+    loaded, instead of spawning a second Python process that loads its own copy.
+    """
+    from acestep.api.train_api_dataset_service import register_training_dataset_routes
+
+    # The dataset service reads `app.state.handler`, while `setup_api_routes` sets
+    # `app.state.dit_handler`; set both so the two conventions agree.
+    app.state.handler = dit_handler
+
+    register_training_dataset_routes(
+        app=app,
+        verify_api_key=verify_api_key,
+        wrap_response=_wrap_response,
+        temporary_llm_model=_temporary_llm_model,
+        atomic_write_json=_atomic_write_json,
+        append_jsonl=_append_jsonl,
+    )
+
+
 def setup_api_routes_to_app(app, dit_handler, llm_handler, api_key: Optional[str] = None):
     """
     Mount API routes to a FastAPI application (for use with gr.mount_gradio_app)
@@ -597,6 +677,7 @@ def setup_api_routes_to_app(app, dit_handler, llm_handler, api_key: Optional[str
     app.state.dit_handler = dit_handler
     app.state.llm_handler = llm_handler
     app.include_router(router)
+    _register_training_dataset_routes(app, dit_handler)
 
 
 def setup_api_routes(demo, dit_handler, llm_handler, api_key: Optional[str] = None):
@@ -615,4 +696,5 @@ def setup_api_routes(demo, dit_handler, llm_handler, api_key: Optional[str] = No
     app.state.dit_handler = dit_handler
     app.state.llm_handler = llm_handler
     app.include_router(router)
+    _register_training_dataset_routes(app, dit_handler)
 
