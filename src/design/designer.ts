@@ -127,12 +127,29 @@ export function designConcepts(request: DesignRequest): Concept[] {
     // The language the market asks for. Whether a lyric pack actually exists is
     // resolved in writeLyrics, which reports a fallback rather than mislabelling
     // English lyrics with the market's language.
-    const requestedLanguage =
-      rng() < 0.75 || brief.languages.length === 1
-        ? brief.languages[0]
-        : brief.languages[1] ?? brief.languages[0];
+    //
+    // The primary language keeps its 3:1 bias over a secondary one, and that bias is now scaled by
+    // what listeners preferred: disliking a language for a market damps the draw instead of being
+    // merely recorded.
+    const languagePick = pickWeighted(
+      brief.languages.map((code, index) => [
+        code,
+        (index === 0 ? 3 : 1) * clamp(learned.get(`language:${code}`) ?? 1, 0.25, 3),
+      ] as [string, number]),
+      rng,
+    );
+    const requestedLanguage = languagePick ?? brief.languages[0];
 
     const energy = GENRE_STYLE[primaryGenre]?.energy ?? 0.6;
+    // The lyric-side preferences a dislike can move: which writing style builds the song, what it is
+    // about, and which of the market's languages it is sung in. These keys were recorded on every
+    // concept and never read back until the dislike existed.
+    const agentWeights: Record<string, number> = {};
+    const subjectWeights: Record<string, number> = {};
+    for (const [key, value] of learned.entries()) {
+      if (key.startsWith('agent:')) agentWeights[key.slice('agent:'.length)] = value;
+      else if (key.startsWith('subject:')) subjectWeights[key.slice('subject:'.length)] = value;
+    }
     // What the song is about is chosen from the market's own sample: its chart's recurring title
     // phrases and its top terms. The static regional themes are only the fallback.
     const themeChoice = lyricThemesFor(market, brief);
@@ -147,6 +164,8 @@ export function designConcepts(request: DesignRequest): Concept[] {
       instrumental,
       usedSubjects: [...recentSubjects, ...runSubjects],
       usedAgents: [...recentAgents, ...runAgents],
+      agentWeights,
+      subjectWeights,
     });
 
     // Recorded so the next run in this market rotates rather than repeating.

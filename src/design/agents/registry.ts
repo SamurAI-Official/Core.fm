@@ -123,6 +123,12 @@ export function chooseAgent(options: {
   pack: LanguagePack;
   exclude?: string[];
   forced?: string;
+  /**
+   * Learned preference per writing style id (the `agent:` market weights). A style that was disliked
+   * for this market loses the draw, which is the point of learning the lyric-side keys at all: the
+   * style is the choice that decides how a song is built.
+   */
+  weights?: Record<string, number>;
 }): AgentChoice {
   const forced = getAgent(options.forced);
   if (forced) return { agent: forced, source: 'seeded' };
@@ -134,10 +140,14 @@ export function chooseAgent(options: {
   const fresh = candidates.filter((agent) => !excluded.has(agent.id));
   const usable = fresh.length > 0 ? fresh : candidates;
 
-  const weighted = usable.map((agent) => ({
-    agent,
-    weight: Math.max(0.05, agent.fits?.({ genre: options.genre, energy: options.energy }) ?? 1),
-  }));
+  const weighted = usable.map((agent) => {
+    const raw = options.weights?.[agent.id];
+    const learned = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(3, Math.max(0.25, raw)) : 1;
+    return {
+      agent,
+      weight: Math.max(0.05, (agent.fits?.({ genre: options.genre, energy: options.energy }) ?? 1) * learned),
+    };
+  });
   const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = options.rng() * total;
   let pick = weighted[weighted.length - 1];

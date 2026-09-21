@@ -20,6 +20,7 @@ import { buildBriefs, latestBrief } from './briefs/build.js';
 import { listConcepts } from './design/store.js';
 import { designConcepts } from './design/designer.js';
 import { rewriteLyrics } from './design/rewrite.js';
+import { feedbackSummary, listFeedback } from './loops/feedback.js';
 import { getWeights } from './loops/ratings.js';
 import { executeConcepts } from './pipeline/run.js';
 import { rateRun } from './loops/rate.js';
@@ -255,6 +256,35 @@ async function main(): Promise<void> {
       }
       if (report.outcomes.length > 12) log(`  ... and ${report.outcomes.length - 12} more`);
       if (report.stillOver > 0) log(`\n  note: ${report.stillOver} design(s) are still over the ceiling`);
+      return;
+    }
+
+    case 'feedback': {
+      // The ledger: what listeners said, and what they blamed. Prints without arguments; the
+      // per-market weights it moved are in `report --market <cc>`.
+      const summary = feedbackSummary();
+      log('');
+      log(
+        `feedback: ${summary.total} recorded (${summary.likes} likes, ${summary.dislikes} dislikes, ` +
+          `${summary.unattributed} dislikes with no reason given)`,
+      );
+      if (summary.byMarket.length > 0) {
+        log('by market:');
+        for (const entry of summary.byMarket) {
+          log(`  ${entry.market.padEnd(4)} ${entry.likes} like(s), ${entry.dislikes} dislike(s)`);
+        }
+      }
+      if (summary.reasons.length > 0) {
+        log('reasons:');
+        for (const entry of summary.reasons) log(`  ${entry.reason.padEnd(14)} ${entry.count}`);
+      }
+      for (const record of listFeedback({ limit: 10 })) {
+        const named = record.reasons.length > 0 ? ` (${record.reasons.join(', ')})` : '';
+        log(
+          `  ${record.createdAt}  ${record.market ?? '-'}  ${record.verdict}${named}  ` +
+            `${record.features.agent ?? '-'} / ${record.features.subject ?? '-'}`,
+        );
+      }
       return;
     }
 

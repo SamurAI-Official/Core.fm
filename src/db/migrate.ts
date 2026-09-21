@@ -147,6 +147,22 @@ CREATE TABLE IF NOT EXISTS ratings (
   rater TEXT
 );
 
+-- Explicit preference over something a listener actually heard: the dislike button. A rating is a
+-- score attached to a *run*; this is a judgement on any output, with optional reasons that
+-- attribute the blame to a part of the song ("muddy mix", "bad lyrics", "wrong genre"). Kept
+-- separate from the ratings table so the two never overwrite each other, and so feedback on a song
+-- that never came from a designed run is still learnable.
+CREATE TABLE IF NOT EXISTS feedback (
+  id TEXT PRIMARY KEY,
+  market TEXT,
+  verdict TEXT NOT NULL,
+  score REAL,
+  reasons TEXT,
+  features TEXT,
+  source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Adaptive per-market weights updated after every scored cycle
 -- (things that scored well get sampled more often next cycle).
 CREATE TABLE IF NOT EXISTS market_weights (
@@ -213,6 +229,8 @@ export function runMigrations(): void {
 // Recurring title phrases for the lyric writer, mined from each brief's own sample. Older briefs
 // have no value and fall back to the static regional table.
 ensureColumn('market_briefs', 'themes', 'TEXT');
+// A run rating may carry an explicit dislike, which learns differently from a low score.
+ensureColumn('ratings', 'verdict', 'TEXT');
   backfillTrackKeys();
   exec(`
     CREATE INDEX IF NOT EXISTS idx_signals_track_series ON signals (market, track_key, captured_at);
