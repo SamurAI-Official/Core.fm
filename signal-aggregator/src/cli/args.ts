@@ -49,4 +49,28 @@ export function optionalNumber(args: Args, key: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/**
+ * Reads an option npm may have taken for itself.
+ *
+ * `npm run <script> -- --market us --dry-run` does not reliably deliver those options to the
+ * script: npm treats recognised ones as its own config and hands the child `npm_config_market`
+ * and `npm_config_dry_run` instead. An operator who passes `--dry-run` and gets a run that
+ * writes anyway is the worst version of this, so commands that destroy or rewrite data read both
+ * spellings. Values arrive as strings ('true'/'false'), and a bare flag may arrive empty.
+ */
+export function envFlag(...names: string[]): boolean {
+  return names.some((name) => {
+    const raw = process.env[name];
+    return raw === 'true' || raw === '1' || raw === '';
+  });
+}
+
+export function envValue(...names: string[]): string | undefined {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw !== undefined && raw !== '') return raw;
+  }
+  return undefined;
+}
+
 export const log = (message: string): void => console.log(message);

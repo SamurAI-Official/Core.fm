@@ -10,6 +10,8 @@
     "collect": "tsx src/index.ts collect",
     "brief": "tsx src/index.ts brief",
     "design": "tsx src/index.ts design",
+    "rewrite-lyrics": "tsx src/index.ts rewrite-lyrics",
+    "lyric-audit": "tsx scripts/lyric-repetition-audit.ts",
     "run": "tsx src/index.ts run",
     "cycle": "tsx src/index.ts cycle",
     "report": "tsx src/index.ts report",

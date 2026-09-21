@@ -7,6 +7,7 @@
  *   npm run design  -- --count 2 --seed 42
  *   npm run run     -- --limit 2
  *   npm run cycle   -- --markets us,ng --per-market 2 --generate 2
+ *   npm run rewrite-lyrics -- --market us            (re-write stored lyrics from the sample)
  *   npm run report  -- --market us
  *   npm run forecast -- --market us --horizon 7
  *   npm run schedule -- --interval 360        (long-running periodic collection)
@@ -18,6 +19,7 @@ import { collectSignals } from './sources/collect.js';
 import { buildBriefs, latestBrief } from './briefs/build.js';
 import { listConcepts } from './design/store.js';
 import { designConcepts } from './design/designer.js';
+import { rewriteLyrics } from './design/rewrite.js';
 import { getWeights } from './loops/ratings.js';
 import { executeConcepts } from './pipeline/run.js';
 import { rateRun } from './loops/rate.js';
@@ -28,7 +30,7 @@ import { renderForecastOverview, renderForecastText } from './report/forecast.js
 import { forecastMarkets } from './forecast/forecast.js';
 import { startScheduler } from './schedule/scheduler.js';
 import { pipeline } from './pipeline/client.js';
-import { log, marketsFrom, numberFrom, optionalNumber, parseArgs } from './cli/args.js';
+import { envFlag, envValue, log, marketsFrom, numberFrom, optionalNumber, parseArgs } from './cli/args.js';
 
 async function main(): Promise<void> {
   const [command = 'report', ...rest] = process.argv.slice(2);
@@ -204,6 +206,55 @@ async function main(): Promise<void> {
       log(`rated ${result.runId} in ${result.market}: ${result.rating}`);
       log(`composite ${result.composite} (fit ${result.marketFit}, novelty ${result.novelty}) -> ${result.verdict}`);
       if (result.learning.length > 0) log(`weights updated: ${result.learning.join(', ')}`);
+      return;
+    }
+
+    case 'rewrite-lyrics': {
+      // npm can consume `--market`, `--dry-run`, `--seed`, `--limit` and `--redraw` as its own
+      // config when they follow the script name, so both spellings are read: a run that is asked
+      // to be dry and writes anyway is the failure mode worth designing against.
+      const market = (args.values.get('market') ?? envValue('npm_config_market'))?.toLowerCase();
+      // A bare flag npm took for itself arrives as 'true', and a silently-empty scope is how a
+      // rewrite looks like it did nothing. Market codes are ISO 3166-1 alpha-2, so anything else
+      // is a mistake worth naming.
+      if (market && !/^[a-z]{2}$/.test(market)) {
+        log(
+          `rewrite-lyrics: '${market}' is not a market code. npm takes --market for itself when it ` +
+            `follows the script name - use --market=<cc>, or bypass npm with ` +
+            `npx tsx src/index.ts rewrite-lyrics --market <cc>`,
+        );
+        return;
+      }
+      const seed = optionalNumber(args, 'seed') ?? Number(envValue('npm_config_seed') ?? NaN);
+      const limit =
+        numberFrom(args, 'limit', Number(envValue('npm_config_limit') ?? 1000));
+      const dryRun = args.flags.has('dry-run') || args.flags.has('dryrun') || envFlag('npm_config_dry_run');
+      const redrawStyles = args.flags.has('redraw') || envFlag('npm_config_redraw');
+
+      log(
+        `rewrite-lyrics | ${dryRun ? 'DRY RUN - nothing will be written' : 'writing'} | ` +
+          `market: ${market ?? 'all'} | seed: ${Number.isFinite(seed) ? seed : 1} | ` +
+          `styles: ${redrawStyles ? 'redrawn' : 'kept'} | limit: ${limit}`,
+      );
+
+      const report = rewriteLyrics({
+        market,
+        limit,
+        seed: Number.isFinite(seed) ? seed : undefined,
+        redrawStyles,
+        dryRun,
+        onEvent: log,
+      });
+      log('');
+      for (const outcome of report.outcomes.slice(0, 12)) {
+        log(
+          `  ${outcome.market} | ${outcome.title.slice(0, 34).padEnd(34)} ${outcome.agent.padEnd(20)} ` +
+            `${(outcome.beforeLineShare * 100).toFixed(0).padStart(3)}% -> ${(outcome.afterLineShare * 100).toFixed(0).padStart(3)}% ` +
+            `(most-sung line ${outcome.beforeMostSung}x -> ${outcome.afterMostSung}x)`,
+        );
+      }
+      if (report.outcomes.length > 12) log(`  ... and ${report.outcomes.length - 12} more`);
+      if (report.stillOver > 0) log(`\n  note: ${report.stillOver} design(s) are still over the ceiling`);
       return;
     }
 

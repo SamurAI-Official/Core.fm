@@ -141,21 +141,28 @@ export function updateConceptFields(id: string, patch: ConceptPatch): Concept | 
  * only, and merging through it would leave the *old* lyric provenance (subject, style,
  * validation) sitting next to the new lyrics. Status returns to `designed`, because any
  * render that already happened no longer matches what is stored.
+ *
+ * `rationale` is optional and exists for the bulk rewrite: the prose names the subject, the
+ * writing style and the singability score, so a rewritten concept whose rationale still named the
+ * previous subject would read as another song's notes. Callers that leave it out keep the old
+ * text, which is what the single-concept reroll endpoint does.
  */
 export function updateConceptLyrics(
   id: string,
   lyrics: string,
   vocalLanguage: string,
   params: Record<string, unknown>,
+  rationale?: string,
 ): Concept | null {
   const current = getConcept(id);
   if (!current) return null;
   pool.query(
-    `UPDATE concepts SET lyrics = ?, vocal_language = ?, params = ?, status = 'designed' WHERE id = ?`,
+    `UPDATE concepts SET lyrics = ?, vocal_language = ?, params = ?, rationale = ?, status = 'designed' WHERE id = ?`,
     [
       lyrics,
       vocalLanguage,
       JSON.stringify({ ...current.params, ...params, rerolledAt: new Date().toISOString() }),
+      rationale ?? current.rationale,
       id,
     ],
   );
