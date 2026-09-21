@@ -226,6 +226,23 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [loraError, setLoraError] = useState<string | null>(null);
   const [isLoraLoading, setIsLoraLoading] = useState(false);
 
+  // Adapters imported into the engine, for the selection dropdown
+  const [loraAdapters, setLoraAdapters] = useState<Array<{
+    name: string;
+    path: string;
+    rank: number | null;
+    alpha: number | null;
+    repo: string | null;
+    configSource: string;
+    verified: boolean | null;
+    confirmed: boolean;
+    lastLoadError: string | null;
+  }>>([]);
+  const [loraListLoading, setLoraListLoading] = useState(false);
+  const [loraListError, setLoraListError] = useState<string | null>(null);
+  const [loraImportRepo, setLoraImportRepo] = useState('');
+  const [loraImporting, setLoraImporting] = useState(false);
+
   // Model selection
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     return localStorage.getItem('ace-model') || 'acestep-v15-turbo-shift3';
@@ -442,6 +459,51 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       setLoraEnabled(!newEnabled); // revert on error
     }
   };
+
+  // Fetch the adapters imported into the engine (drop-in replacements for typing a path)
+  const refreshLoraAdapters = useCallback(async () => {
+    if (!token) return;
+    setLoraListLoading(true);
+    setLoraListError(null);
+    try {
+      const result = await generateApi.listLoras(token);
+      setLoraAdapters(result?.adapters ?? []);
+    } catch (err) {
+      setLoraListError(err instanceof Error ? err.message : 'Could not list LoRA models');
+      console.error('Failed to list LoRA models:', err);
+    } finally {
+      setLoraListLoading(false);
+    }
+  }, [token]);
+
+  // Pull a Hugging Face repo in; the importer normalises keys and synthesises a missing config
+  const handleLoraImport = async () => {
+    if (!token || !loraImportRepo.trim()) return;
+    setLoraImporting(true);
+    setLoraError(null);
+    try {
+      const result = await generateApi.importLora({ repoId: loraImportRepo.trim() }, token);
+      await refreshLoraAdapters();
+      if (result?.dest) setLoraPath(result.dest);
+      setLoraImportRepo('');
+    } catch (err) {
+      setLoraError(err instanceof Error ? err.message : 'Import failed');
+      console.error('LoRA import failed:', err);
+    } finally {
+      setLoraImporting(false);
+    }
+  };
+
+  // Load the list the first time the panel is opened, and whenever the signed-in user changes
+  useEffect(() => {
+    if (showLoraPanel) void refreshLoraAdapters();
+  }, [showLoraPanel, refreshLoraAdapters]);
+
+  // The adapter matching the current path, for the detail line under the dropdown
+  const selectedLoraAdapter = useMemo(
+    () => loraAdapters.find((adapter) => adapter.path === loraPath) ?? null,
+    [loraAdapters, loraPath],
+  );
 
   // Load generation parameters from JSON file
   const handleLoadParamsFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1754,9 +1816,87 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
             {showLoraPanel && (
               <div className="bg-white dark:bg-corefm-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
-                {/* LoRA Path Input */}
+                {/* LoRA Model Dropdown - adapters imported into the engine */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraPath')}</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraModel')}</label>
+                    <button
+                      onClick={() => void refreshLoraAdapters()}
+                      disabled={loraListLoading}
+                      className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-pink-500 disabled:opacity-50 transition-colors"
+                    >
+                      <RefreshCw size={12} className={loraListLoading ? 'animate-spin' : undefined} />
+                      {t('loraRefresh')}
+                    </button>
+                  </div>
+
+                  {loraAdapters.length > 0 ? (
+                    <select
+                      value={loraPath}
+                      onChange={(e) => setLoraPath(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
+                    >
+                      {loraAdapters.map((adapter) => (
+                        <option key={adapter.name} value={adapter.path}>
+                          {adapter.name}
+                          {adapter.rank ? ` · r${adapter.rank}` : ''}
+                          {adapter.confirmed ? '' : ` · ${t('loraUnconfirmed')}`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="text-[11px] text-zinc-500 bg-zinc-50 dark:bg-black/20 border border-dashed border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2">
+                      {loraListLoading ? `${t('loraRefresh')}...` : t('loraNoneImported')}
+                    </div>
+                  )}
+
+                  {selectedLoraAdapter && (
+                    <div className="text-[11px] text-zinc-500 space-y-0.5">
+                      <div>
+                        {selectedLoraAdapter.confirmed ? t('loraConfirmed') : t('loraUnconfirmed')}
+                        {selectedLoraAdapter.rank ? ` · r${selectedLoraAdapter.rank}` : ''}
+                        {selectedLoraAdapter.alpha ? ` · alpha ${selectedLoraAdapter.alpha}` : ''}
+                        {selectedLoraAdapter.configSource === 'synthesized' ? ` · ${t('loraConfigSynthesized')}` : ''}
+                      </div>
+                      {selectedLoraAdapter.repo && <div className="truncate">{selectedLoraAdapter.repo}</div>}
+                      {selectedLoraAdapter.lastLoadError && (
+                        <div className="text-red-600 dark:text-red-400">{selectedLoraAdapter.lastLoadError}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {loraListError && (
+                    <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
+                      {loraListError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Import a LoRA from Hugging Face */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraImportLabel')}</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={loraImportRepo}
+                      onChange={(e) => setLoraImportRepo(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void handleLoraImport(); }}
+                      placeholder={t('loraImportPlaceholder')}
+                      className="flex-1 bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors"
+                    />
+                    <button
+                      onClick={() => void handleLoraImport()}
+                      disabled={!loraImportRepo.trim() || loraImporting}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {loraImporting ? '...' : t('loraImportButton')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Manual path, for adapters kept outside the engine's loras directory */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('loraManualPath')}</label>
                   <input
                     type="text"
                     value={loraPath}

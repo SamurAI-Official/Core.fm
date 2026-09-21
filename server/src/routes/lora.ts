@@ -3,7 +3,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getGradioClient } from '../services/gradio-client.js';
 import { resolvePythonPath } from '../services/acestep.js';
 import { resolveAceStepDir } from '../config/acestepPath.js';
-import { existsSync, readdirSync, readFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -34,6 +34,26 @@ function engineRefused(status: unknown): boolean {
   return typeof status === 'string' && status.trim().startsWith('\u274c');
 }
 
+/**
+ * Remember the outcome of a load inside the adapter's manifest.
+ *
+ * `verification.ok` only says the weights matched the checkpoint on disk when they were imported.
+ * "Confirmed working" has to mean the engine actually loaded it, which is what this records and
+ * what GET /list reads back - so the Create tab only offers adapters known to load.
+ */
+function recordLoadOutcome(adapterPath: string, ok: boolean, detail: string): void {
+  try {
+    const dir = adapterPath.toLowerCase().endsWith('.safetensors') ? path.dirname(adapterPath) : adapterPath;
+    const manifestPath = path.join(dir, 'lora_manifest.json');
+    if (!existsSync(manifestPath)) return; // hand-made folder: nothing to annotate
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>;
+    manifest.lastLoad = { at: new Date().toISOString(), ok, detail: detail.slice(0, 400) };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('[LoRA] Could not record load outcome:', error);
+  }
+}
+
 // POST /api/lora/load — Load a LoRA adapter
 router.post('/load', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -49,11 +69,13 @@ router.post('/load', authMiddleware, async (req: AuthenticatedRequest, res: Resp
 
     if (engineRefused(status)) {
       loraState = { loaded: false, active: false, scale: loraState.scale, path: '' };
+      recordLoadOutcome(lora_path, false, String(status));
       res.status(409).json({ error: String(status).trim(), lora_path, loaded: false });
       return;
     }
 
     loraState = { loaded: true, active: true, scale: loraState.scale, path: lora_path };
+    recordLoadOutcome(lora_path, true, String(status));
 
     res.json({ message: status, lora_path, loaded: true });
   } catch (error) {
@@ -162,6 +184,8 @@ router.get('/list', authMiddleware, async (_req: AuthenticatedRequest, res: Resp
         } catch {
           manifest = null;
         }
+        const lastLoad = manifest?.lastLoad as { ok?: boolean; at?: string; detail?: string } | undefined;
+        const verified = (manifest?.verification as { ok?: boolean } | undefined)?.ok ?? null;
         return {
           name: entry.name,
           path: dir,
@@ -169,7 +193,13 @@ router.get('/list', authMiddleware, async (_req: AuthenticatedRequest, res: Resp
           rank: (manifest?.config as { r?: number } | undefined)?.r ?? null,
           alpha: (manifest?.config as { lora_alpha?: number } | undefined)?.lora_alpha ?? null,
           repo: (manifest?.repo as string | undefined) ?? null,
-          verified: (manifest?.verification as { ok?: boolean } | undefined)?.ok ?? null,
+          verified,
+          // "Confirmed working" = the weights matched the running checkpoint at import time AND the
+          // engine has actually loaded this adapter since. Anything less is presented as unconfirmed
+          // rather than offered as a safe choice.
+          confirmed: Boolean(verified && lastLoad?.ok),
+          lastLoadAt: lastLoad?.at ?? null,
+          lastLoadError: lastLoad?.ok === false ? lastLoad.detail ?? null : null,
         };
       });
 

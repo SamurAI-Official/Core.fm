@@ -418,6 +418,39 @@ export const generateApi = {
     scale: number;
     path: string;
   }> => api('/api/lora/status', { token }),
+
+  // Adapters imported into the engine's loras/ directory. `confirmed` means the weights matched the
+  // running checkpoint at import time AND the engine has loaded the adapter since.
+  listLoras: (token: string): Promise<{
+    adapters: Array<{
+      name: string;
+      path: string;
+      configSource: string;
+      rank: number | null;
+      alpha: number | null;
+      repo: string | null;
+      verified: boolean | null;
+      confirmed: boolean;
+      lastLoadAt: string | null;
+      lastLoadError: string | null;
+    }>;
+    lorasDir: string;
+    active: { loaded: boolean; active: boolean; scale: number; path: string };
+  }> => api('/api/lora/list', { token }),
+
+  // Pull a Hugging Face LoRA repo in and normalise it for the engine
+  importLora: (params: {
+    repoId: string;
+    name?: string;
+    alpha?: number;
+  }, token: string): Promise<{
+    imported: boolean;
+    name: string;
+    dest?: string;
+    profile?: { rank: number | null; layers: number; target_modules: string[] };
+    config?: { source: string; r: number; lora_alpha: number };
+    verification?: { ok: boolean; problems: string[] };
+  }> => api('/api/lora/import', { method: 'POST', body: params, token }),
 };
 
 // Users API

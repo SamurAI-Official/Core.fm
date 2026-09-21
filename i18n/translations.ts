@@ -114,6 +114,17 @@ export const translations = {
     loraUnload: 'Unload',
     loraScale: 'LoRA Scale',
     loraScaleDescription: 'Adjust the influence strength of the LoRA model',
+    loraModel: 'LoRA Model',
+    loraRefresh: 'Refresh',
+    loraNoneImported: 'No LoRA models imported yet',
+    loraUnconfirmed: 'unconfirmed',
+    loraConfirmed: 'confirmed working',
+    loraConfigSynthesized: 'config inferred',
+    loraImportLabel: 'Add from Hugging Face',
+    loraImportPlaceholder: 'owner/repo-name',
+    loraImportButton: 'Import',
+    loraManualPath: 'Or enter a path manually',
+
     
     // CreatePanel - Audio
     reference: 'Reference',
@@ -714,6 +725,17 @@ export const translations = {
     loraUnload: '卸载',
     loraScale: 'LoRA 强度',
     loraScaleDescription: '调整 LoRA 模型的影响强度',
+    loraModel: 'LoRA 模型',
+    loraRefresh: '刷新',
+    loraNoneImported: '尚未导入 LoRA 模型',
+    loraUnconfirmed: '未确认',
+    loraConfirmed: '已确认可用',
+    loraConfigSynthesized: '配置为推断',
+    loraImportLabel: '从 Hugging Face 添加',
+    loraImportPlaceholder: 'owner/repo-name',
+    loraImportButton: '导入',
+    loraManualPath: '或手动输入路径',
+
     
     // CreatePanel - Audio
     reference: '参考',
@@ -1314,6 +1336,17 @@ export const translations = {
     loraUnload: 'アンロード',
     loraScale: 'LoRA スケール',
     loraScaleDescription: 'LoRA モデルの影響強度を調整',
+    loraModel: 'LoRA モデル',
+    loraRefresh: '更新',
+    loraNoneImported: 'LoRA モデルがまだインポートされていません',
+    loraUnconfirmed: '未確認',
+    loraConfirmed: '動作確認済み',
+    loraConfigSynthesized: '設定は推定',
+    loraImportLabel: 'Hugging Face から追加',
+    loraImportPlaceholder: 'owner/repo-name',
+    loraImportButton: 'インポート',
+    loraManualPath: 'またはパスを直接入力',
+
     
     // CreatePanel - Audio
     reference: '参照',
@@ -1914,6 +1947,17 @@ export const translations = {
     loraUnload: '언로드',
     loraScale: 'LoRA 강도',
     loraScaleDescription: 'LoRA 모델의 영향 강도 조절',
+    loraModel: 'LoRA 모델',
+    loraRefresh: '새로고침',
+    loraNoneImported: '아직 가져온 LoRA 모델이 없습니다',
+    loraUnconfirmed: '미확인',
+    loraConfirmed: '작동 확인됨',
+    loraConfigSynthesized: '설정 추론됨',
+    loraImportLabel: 'Hugging Face에서 추가',
+    loraImportPlaceholder: 'owner/repo-name',
+    loraImportButton: '가져오기',
+    loraManualPath: '또는 경로 직접 입력',
+
     
     // CreatePanel - Audio
     reference: '참조',
