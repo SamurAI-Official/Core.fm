@@ -249,6 +249,33 @@ npx tsx scripts/agent-spread.ts --print   # the same, with a sample song per sty
 npx tsx scripts/lyric-preview.ts 42 --agent refrain-mutation
 ```
 
+**Repetition is measured across the whole song, not per section.** A device style repeats on
+purpose, and a per-section count cannot see a hook sung once in each of seven sections - which is
+how `hook-variation-payoff` reached one line being 56% of a lyric (6 distinct lines in 16) in every
+language, while the same gate required device styles to report no repetition at all. `validateLyrics`
+now also reports `maxLineRepeats`, `maxLineShare`, `distinctLineShare` and `mostSungLine` across the
+song, and `npm run test:agents` fails a style whose most-sung line exceeds 40% of it (35% for a
+`fault` style) or whose distinct-line share falls under 50% (45% for `fault`). The distinct-share bar
+sits deliberately *below* the range legitimate styles occupy: a repeated chorus is a real cost, and a
+bar at the boundary would punish songwriting as if it were a defect.
+
+Two commands act on *stored* designs rather than on the writer:
+
+```bash
+npm run lyric-audit                                  # what is stored: per style, worst offenders
+npm run rewrite-lyrics -- --market=us --dry-run      # re-write from the current chart sample
+npm run rewrite-lyrics -- --redraw --seed 2          # redraw the styles too, and get other songs
+```
+
+`rewrite-lyrics` re-runs the *lyric* half of the design for every stored concept: the market's
+latest brief terms and its flavour themes, plus the concept's own genre, requested language, tempo and
+meter. Title, style prompt, key, duration, batch size and seed are untouched; the writing style is
+kept unless `--redraw` is passed, and its original source (rotation, affinity) survives rather than
+being rewritten as "seeded", because a kept style was not drawn again. The draw is seeded from the
+concept id plus the run seed, so one run is reproducible and the next one differs - "based on the
+sample data each time" means a fresh draw against the current chart sample, not a frozen answer. The
+rationale is rebuilt too, because it names the subject, the style and the singability score.
+
 Two limits, stated plainly: `question-answer` guarantees *distinct* questions that
 *lengthen* across the song, which is a proxy for rising stakes - semantic escalation needs the
 `ladder` primitive's ordering to be meaningful in context, not just in the bank. And two
@@ -473,6 +500,8 @@ npm run cycle -- --generate 2        # collect → brief → design → render �
 | `npm run collect` | Fetch and store signals; enriches the top rows with canonical genre + duration |
 | `npm run brief` | Derive per-market profiles (genre mix, tempo, momentum, themes) |
 | `npm run design` | Design concepts from the latest briefs and learned weights |
+| `npm run rewrite-lyrics` | Re-write stored designs' lyrics from each market's current sample (`-- --market=us --dry-run`, `--redraw`, `--seed N`) |
+| `npm run lyric-audit` | Repetition of what is *stored*: per style, per market, worst offenders |
 | `npm run run` | Render designed concepts and score them |
 | `npm run cycle` | The whole loop; `--generate N` controls how many songs get rendered |
 | `npm run report` | Cross-nation overview (add `-- --market us` for one market) |
@@ -483,8 +512,12 @@ npm run cycle -- --generate 2        # collect → brief → design → render �
 | `npm run typecheck` | TypeScript check |
 
 Useful flags: `--markets us,gb --enrich 20 --count 3 --seed 42 --reuse
---instrumental --no-global`. Note that with `npm run`, arguments need `--` first;
-or call `npx tsx src/index.ts <command> ...` directly.
+--instrumental --no-global`. Careful with `npm run`: options npm recognises - `--market`,
+`--dry-run`, `--limit`, `--seed` - can be taken by npm itself even after `--`, which once turned a
+"dry run" into a run that wrote. Pass those as `--key=value`
+(`npm run rewrite-lyrics -- --market=us --dry-run`) or call `npx tsx src/index.ts <command> ...`
+directly; `rewrite-lyrics` reads either form and refuses a market code it does not recognise rather
+than quietly rewriting nothing.
 
 ## The loop, concretely
 
@@ -633,5 +666,6 @@ scripts/db-stats.ts                                data-quality report
 scripts/lyric-preview.ts                           arc + grammar + singability preview
 scripts/lyric-pack-acceptance.ts                   per-pack gate: language, script, meter, cliches
 scripts/subject-spread.ts                          subject coverage, rotation, chart-topic matching
+scripts/lyric-repetition-audit.ts                  repetition of what is *stored*, per style and market
 scripts/inspect-concepts.ts                        language and subject provenance per concept
 ```
