@@ -103,3 +103,24 @@ export function flavorFor(market: string): MarketFlavor {
     themes: override.themes ?? region.themes,
   };
 }
+
+/**
+ * The themes a song is written against, and where they came from.
+ *
+ * The brief's `themes` are mined from the market's own collected signals (`chartThemes`: title
+ * phrases that recur across its tracks), so a lyric follows what that market is actually singing
+ * about *now*. They lead the list, and the static regional table stays behind them as the semantic
+ * baseline - the mined phrases are the sample's own words and are often thin ("need", "last"), and
+ * dropping "late-night city life" in favour of them would make the subject engine lean on a weaker
+ * signal than it had before. Subject scoring counts hits against the whole list, so the extra
+ * material can only add matches, and the recorded source says which layer led.
+ */
+export function lyricThemesFor(
+  market: string,
+  brief: { themes?: string[] } | null,
+): { themes: string[]; source: 'signal' | 'flavour' } {
+  const mined = (brief?.themes ?? []).map((theme) => theme.trim()).filter(Boolean);
+  const baseline = flavorFor(market).themes;
+  const themes = [...new Set([...mined, ...baseline])];
+  return { themes, source: mined.length > 0 ? 'signal' : 'flavour' };
+}

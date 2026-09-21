@@ -28,7 +28,7 @@ import { latestBrief } from '../briefs/build.js';
 import { seedFromString } from '../lib/util.js';
 import { getWeights } from '../loops/ratings.js';
 import { GENRE_STYLE } from './genreStyle.js';
-import { flavorFor } from './marketFlavor.js';
+import { flavorFor, lyricThemesFor } from './marketFlavor.js';
 import { validateLyricPlan, writeLyrics, type LyricPlan } from './lyrics.js';
 import { resolvePack } from './lyrics/index.js';
 import { validateLyrics, type LyricValidation } from './lyrics/validate.js';
@@ -182,6 +182,9 @@ export function rewriteLyrics(options: RewriteOptions = {}): RewriteReport {
     const params = concept.params ?? {};
     const brief = latestBrief(concept.market);
     const flavor = flavorFor(concept.market);
+    // The market's own sample decides what the song is about; the static regional themes are only
+    // the fallback, and which one was used is recorded on the concept.
+    const themeChoice = lyricThemesFor(concept.market, brief);
     const requestedLanguage =
       typeof params.requestedLanguage === 'string' && params.requestedLanguage.length > 0
         ? params.requestedLanguage
@@ -190,7 +193,7 @@ export function rewriteLyrics(options: RewriteOptions = {}): RewriteReport {
     const before = storedRepetition(concept);
 
     const plan = writeLyrics({
-      themes: flavor.themes,
+      themes: themeChoice.themes,
       terms: (brief?.topTerms ?? []).map((term) => term.term),
       energy: GENRE_STYLE[concept.primaryGenre]?.energy ?? 0.6,
       language: requestedLanguage,
@@ -206,6 +209,10 @@ export function rewriteLyrics(options: RewriteOptions = {}): RewriteReport {
 
     const validation = validateLyricPlan(plan, { bpm: concept.bpm, timeSignature: concept.timeSignature });
     const provenance = lyricProvenance(plan, validation);
+    // Where the subject's material came from, so "why is this song about a long way home" is
+    // answerable from the concept.
+    provenance.lyricThemeSource = themeChoice.source;
+    provenance.lyricThemes = themeChoice.themes;
     if (!redrawStyles && existingAgent === plan.agent && typeof params.lyricAgentSource === 'string') {
       // A kept style was chosen at design time, so its source survives the rewrite; `rerolledAt`
       // is what marks the lyrics as rewritten.

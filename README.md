@@ -148,6 +148,19 @@ Consequences worth knowing:
 - **A design run rotates.** `designConcepts` reads the market's previous subjects back
   out of the store and passes them as exclusions, so three designs in one batch are
   three different subjects and a later run does not repeat the last one.
+- **The material comes from the market's own sample.** `terms` are the chart's frequent title
+  words and `themes` are the phrases its titles keep returning to (`chartThemes`: adjacent
+  content-token pairs recurring across several tracks, rank-weighted, artist tokens removed), both
+  mined from the collected signals at brief time. `lyricThemesFor` puts the mined phrases *first*
+  and keeps the static regional table behind them: measured across the ten markets, the mined words
+  alone (`need`, `love`, `last`) match no subject keyword at all - chart-topic matching fell to
+  0/24 designs in nine of ten markets - while the curated phrases are what make the catalogue
+  reachable. `params.lyricThemeSource` records which layer led, alongside `params.lyricThemes`.
+- **The chart's word reaches the lyric.** `pickTopicWord` takes a chart term that is in the pack's
+  own script and renders it as the intro ad-lib, so a market's vocabulary appears verbatim rather
+  than only as a hint. That line was wired up in only three packs (`en`, `ko`, `zh`) - the other six
+  ignored it - so one signal produced a chart-word ad-lib in some markets and a generic one in
+  others; all nine packs now prefer it, and `params.topicWord` records it per concept.
 - **Non-Latin charts rotate rather than match.** Keyword matching compares English
   keywords, so a Korean or Chinese chart cannot be matched against them; those markets
   rotate through the catalogue instead. Rotation is therefore a first-class path, not a

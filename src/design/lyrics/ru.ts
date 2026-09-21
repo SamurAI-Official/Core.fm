@@ -265,7 +265,7 @@ export const russianPack: LanguagePack = {
 
   // Chart terms arrive in the market's script; the subject ad-lib is the pack's own,
   // so the intro says something about this song even on a Latin-script chart.
-  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
+  introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: boundedReframe('cyrillic'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],

@@ -84,6 +84,66 @@ export function topTerms(rows: SignalRow[], limit = 20): Array<{ term: string; c
 }
 
 /**
+ * Recurring phrases in the chart's own titles ("what this market is singing about").
+ *
+ * `topTerms` gives single words, which is what a subject is *matched* against; a theme has to read
+ * like a phrase, because the lyric writer uses themes to choose what a song is about. So this mines
+ * adjacent content-token pairs from the titles, weighted so the top of the chart counts for more
+ * than the tail, and keeps only phrases that appear in at least two tracks - a phrase one artist
+ * used once is a title, not a theme.
+ *
+ * Tokens that only appear inside artist names are excluded, for the same reason `topTerms` excludes
+ * them: otherwise the list quietly becomes a ranking of the artists.
+ *
+ * CJK and Hangul titles are tokenised into bigrams already, so their pairs join without a space
+ * (an inserted space would not match the title it came from); spaced scripts join with one.
+ */
+export function chartThemes(rows: SignalRow[], limit = 8): string[] {
+  if (rows.length === 0) return [];
+  // A phrase has to recur across several tracks to be a theme rather than one artist's title, and
+  // "several" has to scale with the sample: 3 of 50 is evidence, 3 of 500 is a coincidence.
+  const minimum = Math.max(2, Math.ceil(rows.length * 0.06));
+  const artistTokens = new Set(rows.flatMap((row) => contentTokens(row.artist ?? '')));
+  const counted = new Map<string, { weight: number; tracks: Set<string> }>();
+
+  for (const row of rows) {
+    const tokens = contentTokens(row.title ?? '').filter((token) => !artistTokens.has(token));
+    const weight = rankWeight(row.rank);
+    const phrases = new Set<string>();
+    for (let index = 0; index < tokens.length - 1; index += 1) {
+      phrases.add(joinPhrase(tokens[index], tokens[index + 1]));
+    }
+    // A one-word title still carries a theme when the word recurs.
+    if (tokens.length === 1) phrases.add(tokens[0]);
+
+    for (const phrase of phrases) {
+      const entry = counted.get(phrase) ?? { weight: 0, tracks: new Set<string>() };
+      entry.weight += weight;
+      entry.tracks.add(trackKey(row));
+      counted.set(phrase, entry);
+    }
+  }
+
+  const recurring = [...counted.entries()]
+    .filter(([, entry]) => entry.tracks.size >= minimum)
+    .sort((a, b) => b[1].weight - a[1].weight || b[1].tracks.size - a[1].tracks.size)
+    .map(([phrase]) => phrase);
+  if (recurring.length > 0) return recurring.slice(0, limit);
+
+  // Nothing recurs: fall back to the sample's own single words rather than returning nothing,
+  // because an empty list sends the caller to the static regional table and the lyric stops
+  // following the chart at all.
+  return topTerms(rows, limit).map((entry) => entry.term);
+}
+
+/** True for scripts that delimit words, so their phrase pairs keep their space. */
+const SPACED_SCRIPT = /[A-Za-z\u00c0-\u024f\u0400-\u04ff]/;
+
+function joinPhrase(first: string, second: string): string {
+  return SPACED_SCRIPT.test(first) && SPACED_SCRIPT.test(second) ? `${first} ${second}` : `${first}${second}`;
+}
+
+/**
  * Track identity for momentum diffing.
  *
  * Delegates to the shared normalization (diacritics folded, "feat." stripped,

@@ -281,7 +281,7 @@ export const frenchPack: LanguagePack = {
 
   // Chart terms are English/Latin tokens, so this pack uses the hook instead of
   // injecting a foreign word into the intro ad-lib.
-  introLine: (ctx) => `(${subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
+  introLine: (ctx) => `(${ctx.topicWord ?? subjectAdlib(SUBJECT_MATERIAL, ctx) ?? ctx.hook})`,
   reframe: boundedReframe('latin'),
 
   metaphors: (family) => [...(METAPHORS[family] ?? []), ...METAPHORS.general.slice(0, 2)],
