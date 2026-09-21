@@ -65,6 +65,20 @@ export function firstLine(lines: string[]): string | undefined {
 }
 
 /**
+ * Stage lines with one line removed.
+ *
+ * The styles that repeat a key line on purpose need the *rest* of their sections to be other
+ * lines: a hook that also opens every verse is not a hook, it is the song. Measured across the
+ * first 120 designs, `hook-variation-payoff` sang its claim 9 times in 16 lines and
+ * `refrain-mutation` sang its refrain 11 times, because the key line was placed in every section
+ * *and* several times inside the chorus that followed. Both now keep the key line where it does
+ * its work (the chorus, the bridge, the outro) and hand the verses back to the context banks.
+ */
+export function withoutLine(lines: string[], line: string): string[] {
+  return lines.filter((entry) => entry !== line);
+}
+
+/**
  * Song-scoped state, keyed by the lyric context.
  *
  * `ctx` is created once per `writeLyrics` call, so a WeakMap keyed by it gives a style a

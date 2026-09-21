@@ -10,7 +10,7 @@
  */
 import { takeLines, type LanguagePack, type LyricContext } from '../lyrics/types.js';
 import { estimateSyllables } from '../lyrics/validate.js';
-import { onceLine, optionalPrimitive, stageLines } from './shared.js';
+import { onceLine, optionalPrimitive, stageLines, withoutLine } from './shared.js';
 import type { AgentReport, AgentSection, WritingAgent } from './types.js';
 
 /**
@@ -61,14 +61,17 @@ export const grooveReturnAgent: WritingAgent = {
   plan: ({ energy }) => {
     const sections: AgentSection[] = [
       { section: 'Verse 1', roles: ['pattern', 'context'], lines: 3, variant: 'verse-1' },
-      { section: 'Chorus', roles: ['pattern', 'turn'], lines: 4, variant: 'chorus' },
+      // The pattern once per chorus, not three times: with the pattern also opening the verse and
+      // closing the song, three per chorus made one line 53% of the lyric. The predictability the
+      // engine needs comes from the pattern returning at all, and from the two turns under it.
+      { section: 'Chorus', roles: ['pattern', 'turn'], lines: 3, variant: 'chorus' },
     ];
     if (energy >= 0.45) {
       sections.push({ section: 'Verse 2', roles: ['context (image)'], lines: 2, variant: 'verse-2' });
     }
     // The break: one line, no hook, nothing to lean on.
     sections.push({ section: 'Bridge', roles: ['disruption'], lines: 1, variant: 'break' });
-    sections.push({ section: 'Chorus', roles: ['pattern', 'turn'], lines: 4, repeatOf: 'chorus' });
+    sections.push({ section: 'Chorus', roles: ['pattern', 'turn'], lines: 3, repeatOf: 'chorus' });
     sections.push({ section: 'Outro', roles: ['pattern (naked)'], lines: 1, variant: 'outro' });
 
     return {
@@ -96,7 +99,7 @@ export const grooveReturnAgent: WritingAgent = {
       case 'chorus':
       default:
         return takeLines(
-          [ctx.hook, ctx.hook, stageLines(pack, ctx, 'contradiction', 4)[1] ?? ctx.hook, ctx.hook],
+          [ctx.hook, ...withoutLine(stageLines(pack, ctx, 'contradiction', 3), ctx.hook)],
           section.lines,
         );
     }

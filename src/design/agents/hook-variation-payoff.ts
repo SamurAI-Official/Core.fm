@@ -9,7 +9,7 @@
  * reason this style marks repetition as a device rather than a fault.
  */
 import { takeLines, type LanguagePack, type LyricContext } from '../lyrics/types.js';
-import { oncePrimitive, stageLines, uniq } from './shared.js';
+import { oncePrimitive, stageLines, uniq, withoutLine } from './shared.js';
 import type { AgentReport, AgentSection, WritingAgent } from './types.js';
 
 /** The line that re-reads the hook, drawn once per song. */
@@ -29,10 +29,12 @@ export const hookVariationPayoffAgent: WritingAgent = {
   plan: ({ energy }) => {
     const sections: AgentSection[] = [
       { section: 'Intro', roles: ['claim (bare)'], lines: 1, variant: 'intro' },
-      { section: 'Verse 1', roles: ['claim', 'context'], lines: 3, variant: 'verse-1' },
-      { section: 'Chorus', roles: ['claim', 'claim', 'variation'], lines: 4, variant: 'chorus' },
-      { section: 'Verse 2', roles: ['context', 'claim'], lines: 3, variant: 'verse-2' },
-      { section: 'Chorus', roles: ['claim', 'claim', 'variation'], lines: 4, repeatOf: 'chorus' },
+      // The verses set the scene the claim will be heard in; the claim itself arrives with the
+      // chorus, so that hearing it again is an event rather than the default.
+      { section: 'Verse 1', roles: ['context'], lines: 3, variant: 'verse-1' },
+      { section: 'Chorus', roles: ['claim', 'reinterpretation', 'turn'], lines: 4, variant: 'chorus' },
+      { section: 'Verse 2', roles: ['context'], lines: 3, variant: 'verse-2' },
+      { section: 'Chorus', roles: ['claim', 'reinterpretation', 'turn'], lines: 4, repeatOf: 'chorus' },
     ];
     if (energy >= 0.45) {
       sections.push({ section: 'Bridge', roles: ['variation (alone)', 'claim'], lines: 2, variant: 'bridge' });
@@ -52,10 +54,10 @@ export const hookVariationPayoffAgent: WritingAgent = {
         return takeLines([ctx.hook], section.lines);
 
       case 'verse-1':
-        return takeLines(uniq([ctx.hook, ...stageLines(pack, ctx, 'perspective', 2)]), section.lines);
+        return takeLines(uniq(withoutLine(stageLines(pack, ctx, 'perspective', 3), ctx.hook)), section.lines);
 
       case 'verse-2':
-        return takeLines(uniq([...stageLines(pack, ctx, 'uncertainty', 2), ctx.hook]), section.lines);
+        return takeLines(uniq(withoutLine(stageLines(pack, ctx, 'uncertainty', 3), ctx.hook)), section.lines);
 
       case 'bridge':
         // The variation alone, then the claim again: the re-read, then the words.
@@ -63,7 +65,13 @@ export const hookVariationPayoffAgent: WritingAgent = {
 
       case 'chorus':
       default:
-        return takeLines([ctx.hook, ctx.hook, variation], section.lines);
+        // The claim, the line that re-reads it, and the turns that come off it. This was
+        // `[claim, claim, variation]` in every section of the song, which measured as one line
+        // being 56% of the lyric and only six distinct lines in sixteen.
+        return takeLines(
+          uniq([ctx.hook, variation, ...withoutLine(stageLines(pack, ctx, 'contradiction', 2), ctx.hook)]),
+          section.lines,
+        );
     }
   },
 
