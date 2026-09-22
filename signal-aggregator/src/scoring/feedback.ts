@@ -43,6 +43,11 @@ export interface FeedbackFeatures {
 export type FeedbackVerdict = 'like' | 'dislike';
 
 export interface LearnInput {
+  /**
+   * Scoping is the *caller's* business, not the planner's: the same plan feeds two destinations - a
+   * market's weights (which need a market) and a listener's own profile (which does not, because a
+   * person's taste travels between markets).
+   */
   market?: string;
   verdict: FeedbackVerdict;
   /** Optional 0..1 alongside the verdict; a dislike ignores it for sizing. */
@@ -110,17 +115,16 @@ export interface FeedbackPlan {
 /**
  * What a verdict asks for, without touching a single weight.
  *
- * Planned separately from applying it because a verdict now has two destinations: the weights move
- * immediately on the run-rating path (a human is scoring a designed run for its own market), while a
- * listener's thumbs-down becomes a *vote* that only moves the weights once enough distinct listeners
- * agree. Both need the same answer to "what does this verdict blame", and computing it twice would
- * eventually mean two answers.
+ * Planned separately from applying it because one verdict has three destinations: a market's weights
+ * move immediately on the run-rating path (a human is scoring a designed run for its own market), a
+ * listener's thumbs-down becomes a *vote* that only moves the market once enough distinct listeners
+ * agree, and the same thumbs-down moves that listener's *own* profile at once (nothing to wait for -
+ * it is their taste). All three need the same answer to "what does this verdict blame", and computing
+ * it three times would eventually mean three answers.
  */
 export function planFeedback(input: LearnInput): FeedbackPlan {
   const notes: string[] = [];
   const steps: WeightStep[] = [];
-  if (!input.market) return { steps, notes };
-
   const reasons = (input.reasons ?? []).map((reason) => reason.toLowerCase()).filter(Boolean);
   // A reason nobody has modelled must never silently move nothing: the complaint would be recorded,
   // the weights would not change, and nothing in the response would say so. So a reason set that

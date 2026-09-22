@@ -643,6 +643,48 @@ provenance (`market`, `conceptId`, `runId`, `primaryGenre`, `lyricAgent`, `lyric
 design that made it. A song generated straight from the Create tab has no market; its verdict is
 still recorded, with learning switched off, and becomes learnable if it is ever attributed.
 
+## The listener's own profile (Layer U)
+
+The gate above exists because one person should not decide what a *market* hears. It has no place in
+what one person hears next: a hard no is their own statement about their own generation, it costs
+nothing to honour, and it should change the very next thing they are offered. So the same verdict has
+two destinations with two different rules:
+
+| | market (Layer M) | listener (Layer U) |
+|---|---|---|
+| when it acts | when `FEEDBACK_MIN_USERS` distinct raters agree | immediately, on the verdict alone |
+| where it is stored | `market_weights`, keyed by market | `user_weights`, keyed by rater |
+| needs a market | yes | no - a Create-tab song's verdict still teaches |
+| scope | `genre:`, `tag:`, `bpm:`, `key:` | those, plus `agent:`, `subject:`, `language:`, `theme:` |
+
+Same key grammar and the same bounds (0.25-3.0), so the two can be read side by side - and blended
+later - rather than being two vocabularies that cannot meet.
+
+**A hard no produces another take.** `POST /api/next-take` decides what to change, and it obeys one
+rule: **only change what the machine chose, never what the person wrote.**
+
+| reason | what a retry changes | on a prompt the listener wrote |
+|---|---|---|
+| `tempo` | moves a whole tempo band (not a few BPM) | same |
+| `key` | a different key in the same mode | same |
+| `mix`, `vocals` | drops up to two production tags, the ones this listener's profile has damped first | same |
+| `lyrics`, `repetition` | a different writing style (preferring one they have not objected to) and a new subject | *nothing* - the words are theirs |
+| `genre`, `off-prompt` | a different genre for the same market, with its own style prompt | reported as theirs to change |
+| `language` | reported, never changed silently: the language belongs to the market or to their prompt | reported |
+| no reason given | everything above | the seed, and that is reported as such |
+
+Every retry takes a seed that has never been heard for that prompt, and every change is written into
+the song's params (`retryOf`, `retryRoot`, `retryAttempt`, `retryReasons`, `retryExcludedSeeds`,
+`retryNote`) so "why is this different from what I asked for?" is answerable from the record rather
+than by comparing two renders by ear. A writing style change rerolls the *words* through the loop's
+own lyric writer, because a song whose params claim one style while its lyrics follow another is
+worse than not changing the style at all.
+
+`GET /api/users/:rater/profile` reports the profile as preferences (`prefers`, `avoids`) plus the
+number of verdicts behind it. That count is the confidence, and it is reported rather than folded in:
+the app's Create tab shows its suggestion row only once there is more than one verdict, and applies it
+only when the listener clicks.
+
 ## Honest limitations
 
 - **Tempo is mostly inferred, not measured.** Deezer's public API now returns
@@ -682,6 +724,17 @@ still recorded, with learning switched off, and becomes learnable if it is ever 
 - **A promoted step is only *roughly* reversible.** Retracting a verdict applies the opposite delta,
   and because weights are clamped, a reversal of a step that was itself clamped cannot land on the
   exact earlier value. The response reports the value it actually reached.
+- **A lyric complaint has nothing to blame on a prompt nobody designed.** If a listener writes their own
+  prompt, no writing style or subject was chosen for them, so `lyrics` / `bad-lyrics` moves nothing in
+  their profile and a retry leaves the words alone (and says so). It is not a silent no-op: it is the
+  only honest answer, because inventing a style to blame would be inventing the complaint.
+- **A retry cannot avoid a take whose seed was random.** The engine is handed an explicit seed it
+  records, so a take can be excluded by name - but a take rendered from a *random* seed does not record
+  which seed it used, so a retry can only replace it with an explicit one. The response says so rather
+  than implying the old take is unreachable.
+- **Only the listener's own verdicts move their profile.** The profile is not a market's opinion of
+  them, and other listeners' votes never reach it - which is why a single-user install still gets a
+  useful Layer U while its Layer M stays deliberately still.
 - Chart artists appear as market *context* only. Designs are generated from genre,
   tempo and structure evidence, with original titles — no artist's song is imitated.
 
@@ -720,6 +773,8 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `POST /api/ratings` | `{ runId, score, notes? }` → re-score + learn |
 | `POST /api/feedback` | `{ market?, verdict: like\|dislike\|none, rater?, sourceId?, reasons?, features?, learn? }` → record a preference and report what it moved (`applied`) and what is still waiting on other listeners (`pending`). `none` retracts the caller's last verdict on that response |
 | `GET /api/feedback` | The ledger: summary (likes, dislikes, reasons, raters, promoted vs pending), recent verdicts with who gave them, and every group still short of agreement |
+| `GET /api/users/:rater/profile` | A listener's own profile: what they want more and less of, and how many verdicts it is built from |
+| `POST /api/next-take` | `{ rater, reasons, previous, excludeSeeds, attempt? }` → what to change for another take of the same prompt, with a note explaining each change |
 
 
 ## Files
@@ -729,7 +784,8 @@ src/
   analysis/   genres.ts  tempo.ts  metrics.ts  series.ts   normalization + evidence + time series
   sources/    apple.ts deezer.ts itunes.ts store.ts collect.ts
   briefs/     build.ts types.ts                    market profiles
-  design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts provenance.ts
+  design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts provenance.ts nextTake.ts
+              (nextTake.ts: what a retry changes, given a rejection and a listener's profile)
   design/agents/   types.ts registry.ts arc.ts refrain-mutation.ts question-answer.ts
                    writing styles: arrangement + selection, one file per style
   design/lyrics/  index.ts types.ts subjects.ts primitives.ts en.ts fr.ts de.ts es.ts it.ts pt.ts ru.ts ko.ts zh.ts validate.ts
@@ -738,8 +794,9 @@ src/
   schedule/   scheduler.ts                         periodic collection (history for forecasting)
   pipeline/   client.ts submit.ts run.ts            ACE-Step integration (submit carries attribution)
   scoring/    fit.ts score.ts feedback.ts            scoring, learning, what a verdict blames
-  loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts
-              the loop, the preference ledger, and the agreement gate over its votes
+  loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts userProfile.ts
+              the loop, the preference ledger, the agreement gate over its votes, and each
+              listener's own profile (which acts at once, unlike the gate)
   report/     overview.ts detail.ts forecast.ts format.ts   reporting
   api/        server.ts dashboard.ts
   db/         index.ts migrate.ts    cli/args.ts     index.ts (CLI)
