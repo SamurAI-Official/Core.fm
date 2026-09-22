@@ -37,6 +37,7 @@ import {
   insertVotes,
   listFeedback,
   markWithdrawn,
+  verdictRateLimit,
 } from '../loops/feedback.js';
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
@@ -306,6 +307,11 @@ export function createApp(): express.Express {
         return;
       }
 
+      // The cap is checked *before* this verdict is recorded, so the Nth verdict is the last one that
+      // acts: counting after the insert would let one extra through every window.
+      const rateLimit = raterId ? verdictRateLimit(raterId) : null;
+      const rateLimited = Boolean(rateLimit && !rateLimit.allowed);
+
       const id = insertFeedback({
         market: marketCode,
         verdict,
@@ -317,11 +323,12 @@ export function createApp(): express.Express {
         sourceId: sourceKey,
       });
 
-      // Planned whenever the caller has not opted out. Note the scope split: a *market* needs a market
-      // (below), but the caller's own profile does not - which is what lets a hard no on a Create-tab
-      // song teach *their* taste even though there is no market for it to reach.
+      // Planned whenever the caller has not opted out *and* the caller is not over its cap. Note the
+      // scope split: a *market* needs a market (below), but the caller's own profile does not - which is
+      // what lets a hard no on a Create-tab song teach *their* taste even though there is no market for
+      // it to reach.
       const plan =
-        learn === false
+        learn === false || rateLimited
           ? { steps: [], notes: [] }
           : planFeedback({
               market: marketCode,
@@ -378,6 +385,13 @@ export function createApp(): express.Express {
         pending,
         /** What moved in the *caller's own* profile, immediately, on the strength of their verdict. */
         profile: profileApplied,
+        /**
+         * True when this verdict was recorded but not acted on, because the caller is over its cap. Says
+         * so in the payload rather than only in a log: a verdict that quietly stops teaching is exactly
+         * the kind of silence this loop is built to avoid.
+         */
+        rateLimited,
+        rateLimit,
         notes: marketCode ? weightNotes(marketCode) : [],
         learner: {
           minUsers: Math.max(1, config.feedback.minUsers),
@@ -406,6 +420,11 @@ export function createApp(): express.Express {
       const market = req.query.market ? String(req.query.market).toLowerCase() : undefined;
       res.json({
         ...profile,
+        /**
+         * How much of today's cap this listener has used. Reported with the profile because it is the
+         * same question from the other side: how much of what this person has said is being acted on.
+         */
+        rateLimit: verdictRateLimit(rater),
         /** The market's own weights for the same keys, when asked for, so a caller can compare the two. */
         market: market ? getWeights(market) : null,
       });
