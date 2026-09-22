@@ -54,15 +54,35 @@ export interface LearnInput {
 
 /** Which key families a reason blames. Absent reasons blame everything the song carried. */
 const REASON_KEYS: Record<string, string[]> = {
+  // Production: the mix, the vocal, artefacts. All carried by the style prompt's tags.
   mix: ['tag'],
   production: ['tag'],
+  muddy: ['tag'],
+  artifacts: ['tag'],
+  vocals: ['tag'],
+  // What the song is.
   genre: ['genre'],
+  'wrong-genre': ['genre'],
   tempo: ['bpm'],
   key: ['key'],
   lyrics: ['agent', 'subject'],
+  'bad-lyrics': ['agent', 'subject'],
   repetition: ['agent', 'subject'],
   language: ['language', 'subject'],
   pronunciation: ['language'],
+  /**
+   * "Not what I asked for" judges the mapping from the prompt to the song, which is carried by the
+   * genre that was picked, the themes the subject was matched from, and the tags the style prompt
+   * named - so those are what it moves. It is the one reason that is about the *translation* of an
+   * instruction rather than about the music.
+   */
+  'off-prompt': ['genre', 'subject', 'tag'],
+  /**
+   * "Just not for me" names nothing, and is deliberately mapped to nothing: it must blame everything
+   * the response carried rather than pretend to be a specific complaint. The same fallback catches a
+   * reason nobody has modelled yet (see below), which is why the empty list matters.
+   */
+  'not-my-kind': [],
 };
 
 /**
@@ -77,7 +97,13 @@ const LIKE_BASE = 0.85;
 export function learnFromFeedback(input: LearnInput): string[] {
   if (!input.market) return [];
   const reasons = (input.reasons ?? []).map((reason) => reason.toLowerCase()).filter(Boolean);
-  const blamed = reasons.length > 0 ? new Set(reasons.flatMap((reason) => REASON_KEYS[reason] ?? [])) : null;
+  // A reason nobody has modelled must never silently move nothing: the complaint would be recorded,
+  // the weights would not change, and nothing in the response would say so. So a reason set that
+  // blames no family at all is treated as unattributed - it blames everything the response carried -
+  // and the unrecognised ids are reported back to the caller.
+  const mapped = reasons.flatMap((reason) => REASON_KEYS[reason] ?? []);
+  const unrecognised = reasons.filter((reason) => !(reason in REASON_KEYS));
+  const blamed = reasons.length > 0 && mapped.length > 0 ? new Set(mapped) : null;
   const blames = (family: string): boolean => blamed === null || blamed.has(family);
 
   const delta =
@@ -97,6 +123,11 @@ export function learnFromFeedback(input: LearnInput): string[] {
   };
 
   const features = input.features;
+  if (unrecognised.length > 0) {
+    applied.push(
+      `unrecognised reason(s) ${unrecognised.join(', ')}: blamed everything the response carried`,
+    );
+  }
   if (features.genre && blames('genre')) bump(`genre:${features.genre}`, 1);
   if (features.bpm && blames('bpm')) bump(`bpm:${tempoClass(features.bpm)}`, 0.6);
   if (features.keyScale && blames('key')) bump(`key:${features.keyScale}`, 0.5);
