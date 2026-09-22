@@ -163,6 +163,26 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One row per (verdict, weight key) the verdict blamed, attributed to the person who judged.
+--
+-- Votes exist so agreement can be counted before a market's weights move: three listeners disliking
+-- tag:country is a pattern, one listener disliking it three times is not, and market_weights alone
+-- cannot tell the two apart. Promotions read these rows; promoted_at marks the votes that have
+-- already been acted on, so a later promotion counts only the votes that arrived since.
+CREATE TABLE IF NOT EXISTS feedback_votes (
+  feedback_id TEXT NOT NULL,
+  market TEXT NOT NULL,
+  key TEXT NOT NULL,
+  -- +1 for a like, -1 for a dislike.
+  sign INTEGER NOT NULL,
+  rater TEXT,
+  -- The weight delta this vote asked for, so a promotion can be applied and explained.
+  delta REAL NOT NULL,
+  promoted_at TEXT,
+  withdrawn_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Adaptive per-market weights updated after every scored cycle
 -- (things that scored well get sampled more often next cycle).
 CREATE TABLE IF NOT EXISTS market_weights (
@@ -231,10 +251,19 @@ export function runMigrations(): void {
 ensureColumn('market_briefs', 'themes', 'TEXT');
 // A run rating may carry an explicit dislike, which learns differently from a low score.
 ensureColumn('ratings', 'verdict', 'TEXT');
+// Who judged (an opaque id), and which response they judged. Both are needed to count agreement
+// between *distinct* listeners, and to let a retracted verdict find its own votes again.
+ensureColumn('feedback', 'rater', 'TEXT');
+ensureColumn('feedback', 'source_id', 'TEXT');
+ensureColumn('feedback', 'withdrawn', 'INTEGER NOT NULL DEFAULT 0');
   backfillTrackKeys();
   exec(`
     CREATE INDEX IF NOT EXISTS idx_signals_track_series ON signals (market, track_key, captured_at);
     CREATE INDEX IF NOT EXISTS idx_signals_market_time ON signals (market, captured_at);
+    CREATE INDEX IF NOT EXISTS idx_feedback_votes_pending
+      ON feedback_votes (market, key, sign, promoted_at, withdrawn_at);
+    CREATE INDEX IF NOT EXISTS idx_feedback_votes_source ON feedback_votes (feedback_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_rater ON feedback (market, rater);
   `);
 
   const statement = `

@@ -94,8 +94,33 @@ const REASON_KEYS: Record<string, string[]> = {
 const DISLIKE_STEPS = 1;
 const LIKE_BASE = 0.85;
 
-export function learnFromFeedback(input: LearnInput): string[] {
-  if (!input.market) return [];
+/** One weight the verdict asks to move, and by how much. */
+export interface WeightStep {
+  key: string;
+  /** Signed delta: negative for "less of this", positive for "more of it". */
+  delta: number;
+}
+
+export interface FeedbackPlan {
+  steps: WeightStep[];
+  /** Anything the caller should know: unrecognised reasons, and what they were treated as. */
+  notes: string[];
+}
+
+/**
+ * What a verdict asks for, without touching a single weight.
+ *
+ * Planned separately from applying it because a verdict now has two destinations: the weights move
+ * immediately on the run-rating path (a human is scoring a designed run for its own market), while a
+ * listener's thumbs-down becomes a *vote* that only moves the weights once enough distinct listeners
+ * agree. Both need the same answer to "what does this verdict blame", and computing it twice would
+ * eventually mean two answers.
+ */
+export function planFeedback(input: LearnInput): FeedbackPlan {
+  const notes: string[] = [];
+  const steps: WeightStep[] = [];
+  if (!input.market) return { steps, notes };
+
   const reasons = (input.reasons ?? []).map((reason) => reason.toLowerCase()).filter(Boolean);
   // A reason nobody has modelled must never silently move nothing: the complaint would be recorded,
   // the weights would not change, and nothing in the response would say so. So a reason set that
@@ -110,48 +135,68 @@ export function learnFromFeedback(input: LearnInput): string[] {
     input.verdict === 'dislike'
       ? -config.scoring.learningRate * DISLIKE_STEPS
       : config.scoring.learningRate * (clamp(input.score ?? LIKE_BASE) - 0.5);
-  if (delta === 0) return [];
+  if (delta === 0) return { steps, notes };
 
-  const applied: string[] = [];
-  const bump = (key: string, share: number): void => {
+  const ask = (key: string, share: number): void => {
     const amount = delta * share;
     if (amount === 0) return;
-    const current = getWeight(input.market as string, key, 1);
-    const next = clamp(current + amount, 0.25, 3);
-    setWeight(input.market as string, key, round(next, 4));
-    applied.push(`${key} -> ${round(next, 3)}`);
+    steps.push({ key, delta: round(amount, 4) });
   };
 
   const features = input.features;
   if (unrecognised.length > 0) {
-    applied.push(
+    notes.push(
       `unrecognised reason(s) ${unrecognised.join(', ')}: blamed everything the response carried`,
     );
   }
-  if (features.genre && blames('genre')) bump(`genre:${features.genre}`, 1);
-  if (features.bpm && blames('bpm')) bump(`bpm:${tempoClass(features.bpm)}`, 0.6);
-  if (features.keyScale && blames('key')) bump(`key:${features.keyScale}`, 0.5);
+  if (features.genre && blames('genre')) ask(`genre:${features.genre}`, 1);
+  if (features.bpm && blames('bpm')) ask(`bpm:${tempoClass(features.bpm)}`, 0.6);
+  if (features.keyScale && blames('key')) ask(`key:${features.keyScale}`, 0.5);
 
   // Production tags: from the style prompt when there is one, else the declared tags.
   if (blames('tag')) {
     const style = (features.style ?? '').toLowerCase();
     for (const tag of tagVocabulary(features.genre ? [features.genre] : [])) {
-      if (style.includes(tag.toLowerCase())) bump(`tag:${tag}`, 0.4);
+      if (style.includes(tag.toLowerCase())) ask(`tag:${tag}`, 0.4);
     }
   }
 
   // The lyric-side keys. The designer reads agent: and subject: (and language:), so a dislike on a
   // writing style is what stops that style being chosen for that market next cycle.
-  if (features.agent && blames('agent')) bump(`agent:${features.agent}`, 1);
-  if (features.subject && blames('subject')) bump(`subject:${features.subject}`, 0.6);
-  if (features.language && blames('language')) bump(`language:${features.language}`, 0.8);
+  if (features.agent && blames('agent')) ask(`agent:${features.agent}`, 1);
+  if (features.subject && blames('subject')) ask(`subject:${features.subject}`, 0.6);
+  if (features.language && blames('language')) ask(`language:${features.language}`, 0.8);
   // Themes ride with the subject: they are how the subject was matched, so a complaint about the
   // lyrics or the language reaches them, and a complaint about the mix does not.
   if (blames('subject')) {
     for (const theme of (features.themes ?? []).slice(0, 3)) {
-      bump(`theme:${theme.toLowerCase()}`, 0.3);
+      ask(`theme:${theme.toLowerCase()}`, 0.3);
     }
   }
 
+  return { steps, notes };
+}
+
+/** Writes steps onto a market's weights, clamped, and describes what each weight became. */
+export function applySteps(market: string, steps: WeightStep[]): string[] {
+  const applied: string[] = [];
+  for (const step of steps) {
+    if (step.delta === 0) continue;
+    const current = getWeight(market, step.key, 1);
+    const next = clamp(current + step.delta, 0.25, 3);
+    setWeight(market, step.key, round(next, 4));
+    applied.push(`${step.key} -> ${round(next, 3)}`);
+  }
   return applied;
+}
+
+/**
+ * Plan and apply in one go: the path used when a listener rates a run of their own market, where the
+ * judgement is direct and there is nobody else's opinion to wait for.
+ */
+export function learnFromFeedback(input: LearnInput): string[] {
+  const plan = planFeedback(input);
+  if (!input.market) return [];
+  const applied = applySteps(input.market, plan.steps);
+  return plan.notes.length > 0 ? [...applied, ...plan.notes] : applied;
 }

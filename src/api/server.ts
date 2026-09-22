@@ -9,6 +9,7 @@ import express, { type Request, type Response } from 'express';
 import path from 'path';
 import { config } from '../config.js';
 import { runMigrations } from '../db/migrate.js';
+import { round } from '../lib/util.js';
 import { marketInfo } from '../markets.js';
 import { briefConfidence, latestBrief } from '../briefs/build.js';
 import { collectSignals } from '../sources/collect.js';
@@ -29,8 +30,16 @@ import { designConcepts } from '../design/designer.js';
 import { getRun, listRuns, type RunRecord } from '../loops/store.js';
 import { getWeights, unratedRuns, weightNotes } from '../loops/ratings.js';
 import { rateRun } from '../loops/rate.js';
-import { feedbackSummary, insertFeedback, listFeedback } from '../loops/feedback.js';
-import { learnFromFeedback } from '../scoring/feedback.js';
+import {
+  feedbackSummary,
+  findFeedbackBySource,
+  insertFeedback,
+  insertVotes,
+  listFeedback,
+  markWithdrawn,
+} from '../loops/feedback.js';
+import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
+import { planFeedback } from '../scoring/feedback.js';
 import { runCycle } from '../loops/cycle.js';
 import { executeConcept } from '../pipeline/run.js';
 import { marketOverview, renderOverviewText } from '../report/overview.js';
@@ -209,12 +218,17 @@ export function createApp(): express.Express {
    * This is the dislike button's endpoint. A song generated straight from the Create tab has no run
    * to rate, so the caller sends features instead of an id: the market, and whatever provenance the
    * output carries (genre, tempo, key, the style prompt, writing style, subject, language, themes).
-   * The update is applied immediately and reported back, so the UI can show what a thumbs-down
-   * actually changed.
+   * A verdict is recorded immediately but does not move a market's weights on its own: it becomes one
+   * or more *votes*, and `promoteFeedback` applies them once `FEEDBACK_MIN_USERS` distinct raters
+   * agree. The response says which of the two happened - `applied` for what moved now, `pending` for
+   * what is still waiting on other listeners - so a caller can be honest about the effect.
+   *
+   * `verdict: 'none'` retracts: it finds the caller's most recent verdict on the same response and
+   * takes it out of the count, undoing any weight it had already moved.
    */
   app.post('/api/feedback', (req: Request, res: Response) => {
     try {
-      const { market, verdict, score, reasons, features, source, learn } = req.body as {
+      const { market, verdict, score, reasons, features, source, learn, rater, sourceId } = req.body as {
         market?: unknown;
         verdict?: unknown;
         score?: unknown;
@@ -222,12 +236,16 @@ export function createApp(): express.Express {
         features?: unknown;
         source?: unknown;
         learn?: unknown;
+        rater?: unknown;
+        sourceId?: unknown;
       };
-      if (verdict !== 'like' && verdict !== 'dislike') {
-        res.status(400).json({ error: "verdict must be 'like' or 'dislike'" });
+      if (verdict !== 'like' && verdict !== 'dislike' && verdict !== 'none') {
+        res.status(400).json({ error: "verdict must be 'like', 'dislike' or 'none'" });
         return;
       }
       const marketCode = typeof market === 'string' && market ? market.toLowerCase() : undefined;
+      const raterId = typeof rater === 'string' && rater ? rater : undefined;
+      const sourceKey = typeof sourceId === 'string' && sourceId ? sourceId : undefined;
       const reasonList = Array.isArray(reasons)
         ? reasons.filter((reason): reason is string => typeof reason === 'string')
         : [];
@@ -245,6 +263,38 @@ export function createApp(): express.Express {
           : undefined,
       };
 
+      // Retraction: the same person taking back the same judgement.
+      if (verdict === 'none') {
+        if (!marketCode || !raterId || !sourceKey) {
+          res.json({
+            verdict,
+            market: marketCode ?? null,
+            withdrawn: null,
+            note: 'nothing to retract: market, rater and sourceId are all needed to find the verdict',
+          });
+          return;
+        }
+        const prior = findFeedbackBySource({ market: marketCode, rater: raterId, sourceId: sourceKey });
+        if (!prior) {
+          res.json({
+            verdict,
+            market: marketCode,
+            withdrawn: null,
+            note: 'no verdict of yours to retract on this response',
+          });
+          return;
+        }
+        const result = withdrawFeedback({ market: marketCode, feedbackId: prior.id });
+        markWithdrawn(prior.id);
+        res.json({
+          verdict,
+          market: marketCode,
+          withdrawn: { id: prior.id, was: prior.verdict, ...result },
+          notes: weightNotes(marketCode),
+        });
+        return;
+      }
+
       const id = insertFeedback({
         market: marketCode,
         verdict,
@@ -252,42 +302,107 @@ export function createApp(): express.Express {
         reasons: reasonList,
         features: cleanFeatures,
         source: typeof source === 'string' ? source : 'api',
+        rater: raterId,
+        sourceId: sourceKey,
       });
-      // `learn: false` records a preference without moving anything, for a caller that is reporting
-      // something it does not want acted on yet.
-      const applied =
-        learn === false
-          ? []
-          : learnFromFeedback({
+
+      // `learn: false` records a preference without letting it act, so no votes are written at all - a
+      // vote is the promise to act on agreement, and the caller declined exactly that.
+      const plan =
+        learn === false || !marketCode
+          ? { steps: [], notes: [] }
+          : planFeedback({
               market: marketCode,
               verdict,
               score: typeof score === 'number' ? score : undefined,
               reasons: reasonList,
               features: cleanFeatures,
             });
+      const votes =
+        marketCode && plan.steps.length > 0
+          ? insertVotes({
+              feedbackId: id,
+              market: marketCode,
+              sign: verdict === 'dislike' ? -1 : 1,
+              rater: raterId,
+              steps: plan.steps,
+            })
+          : 0;
+
+      // Only this market is reconsidered, and only after a vote exists: a promotion is a consequence of
+      // what is in the ledger, never of the request alone.
+      const promoted = marketCode && votes > 0 ? promoteFeedback({ market: marketCode }) : [];
+      const mine = promoted.filter((event) => plan.steps.some((step) => step.key === event.key));
+      const pending = marketCode
+        ? pendingPromotions(marketCode)
+            .filter((event) => plan.steps.some((step) => step.key === event.key))
+            .map((event) => ({
+              key: event.key,
+              sign: event.sign,
+              raters: event.raters,
+              needed: Math.max(1, config.feedback.minUsers),
+              delta: event.delta,
+            }))
+        : [];
 
       res.json({
         id,
         verdict,
         market: marketCode ?? null,
-        applied,
+        rater: raterId ?? null,
+        recorded: true,
+        votes,
+        /** Weight moves this verdict caused now, because enough distinct listeners agree. */
+        applied: mine
+          .filter((event) => event.applied)
+          .map((event) => `${event.key} -> ${round(event.after ?? event.before, 3)}`),
+        /** Keys still short of agreement, with how many listeners are with the caller so far. */
+        pending,
         notes: marketCode ? weightNotes(marketCode) : [],
+        learner: {
+          minUsers: Math.max(1, config.feedback.minUsers),
+          windowDays: Math.max(1, Math.round(config.feedback.windowDays)),
+          promoting: config.feedback.promote,
+        },
+        planNotes: plan.notes,
       });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
   });
 
-  /** What listeners have said, and what they objected to. */
+  /**
+   * What listeners have said, what they objected to, and what is still waiting for agreement.
+   *
+   * `pending` is the interesting half of the gate: it shows votes that have been recorded and are one
+   * listener short of moving the market, which is what makes a slow learner legible rather than
+   * looking like the button does nothing.
+   */
   app.get('/api/feedback', (req: Request, res: Response) => {
+    const market = req.query.market ? String(req.query.market).toLowerCase() : undefined;
     res.json({
-      summary: feedbackSummary(),
+      summary: feedbackSummary(2000, market),
       recent: listFeedback({
-        market: req.query.market ? String(req.query.market).toLowerCase() : undefined,
+        market,
         verdict:
           req.query.verdict === 'like' || req.query.verdict === 'dislike' ? req.query.verdict : undefined,
         limit: req.query.limit ? Number(req.query.limit) : 20,
       }),
+      pending: pendingPromotions(market).map((event) => ({
+        market: event.market,
+        key: event.key,
+        sign: event.sign,
+        raters: event.raters,
+        votes: event.votes,
+        needed: Math.max(1, config.feedback.minUsers),
+        delta: event.delta,
+        before: event.before,
+      })),
+      learner: {
+        minUsers: Math.max(1, config.feedback.minUsers),
+        windowDays: Math.max(1, Math.round(config.feedback.windowDays)),
+        promoting: config.feedback.promote,
+      },
     });
   });
 
