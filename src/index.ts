@@ -21,6 +21,7 @@ import { listConcepts } from './design/store.js';
 import { designConcepts } from './design/designer.js';
 import { rewriteLyrics } from './design/rewrite.js';
 import { feedbackSummary, listFeedback } from './loops/feedback.js';
+import { decayStatus, decayWeights, describeDecay } from './loops/decay.js';
 import { getWeights } from './loops/ratings.js';
 import { executeConcepts } from './pipeline/run.js';
 import { rateRun } from './loops/rate.js';
@@ -285,6 +286,27 @@ async function main(): Promise<void> {
             `${record.features.agent ?? '-'} / ${record.features.subject ?? '-'}`,
         );
       }
+      return;
+    }
+
+    case 'decay': {
+      // Weights walk back toward neutral when nobody has confirmed them for a while. Runs on its own at
+      // startup, on every scheduled pass and at the head of a cycle; this is for watching it happen, or
+      // for asking what it would do.
+      // Both spellings, and npm's own config form: `npm run decay -- --dry-run` hands the child
+      // `npm_config_dry_run` instead (see cli/args.ts), and a command that answers --dry-run by writing
+      // is the worst version of this.
+      const dryRun = args.flags.has('dry-run') || args.flags.has('dryrun') || envFlag('npm_config_dry_run');
+      const report = decayWeights({ dryRun });
+      const status = decayStatus();
+      log('');
+      log(
+        `decay: ${(report.ratePerWeek * 100).toFixed(2)}%/week toward neutral` +
+          (status.lastPassAt ? `, last pass ${status.lastPassAt}` : ', never run before') +
+          (report.weeksSinceLastPass === null ? '' : ` (${report.weeksSinceLastPass}w ago)`) +
+          (dryRun ? '  [DRY RUN - nothing written]' : ''),
+      );
+      for (const line of describeDecay(report)) log(`  ${line}`);
       return;
     }
 

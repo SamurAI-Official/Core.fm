@@ -13,6 +13,7 @@
     "rewrite-lyrics": "tsx src/index.ts rewrite-lyrics",
     "lyric-audit": "tsx scripts/lyric-repetition-audit.ts",
     "feedback": "tsx src/index.ts feedback",
+    "decay": "tsx src/index.ts decay",
     "run": "tsx src/index.ts run",
     "cycle": "tsx src/index.ts cycle",
     "report": "tsx src/index.ts report",

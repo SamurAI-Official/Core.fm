@@ -14,6 +14,7 @@ import { config } from '../config.js';
 import { buildBriefs } from '../briefs/build.js';
 import { collectSignals } from '../sources/collect.js';
 import { setMeta } from '../sources/store.js';
+import { decayWeights, describeDecay } from '../loops/decay.js';
 
 export interface SchedulerState {
   enabled: boolean;
@@ -77,6 +78,14 @@ async function runOnce(log: (message: string) => void): Promise<void> {
     if (config.schedule.briefAfterCollect) {
       buildBriefs(config.markets);
       log('[schedule] market briefs refreshed');
+    }
+
+    // Same place the briefs are refreshed, and for the same reason: a scheduled pass is the loop's
+    // heartbeat, so it is where an untouched weight notices that time has passed. The rate is per week,
+    // so running this every pass gives exactly the same weights as running it once a week.
+    const decay = decayWeights();
+    if (decay.scopes.some((scope) => scope.moved > 0)) {
+      for (const line of describeDecay(decay)) log(`[schedule] ${line}`);
     }
 
     state.runs += 1;

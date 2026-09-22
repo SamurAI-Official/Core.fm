@@ -92,6 +92,14 @@ export const config = {
     championThreshold: num(process.env.CHAMPION_THRESHOLD, 0.7),
     viableThreshold: num(process.env.VIABLE_THRESHOLD, 0.55),
     learningRate: num(process.env.LEARNING_RATE, 0.25),
+    /**
+     * How fast an untouched weight walks back toward neutral, per week.
+     *
+     * The mirror of `learningRate`: that is how fast a listener can move a weight, this is how fast the
+     * weight lets go of them. At the default 2%/week a key driven to its 0.25 floor is back to about
+     * 0.9 in ten weeks, and a key that keeps being confirmed never moves at all.
+     */
+    decayPerWeek: num(process.env.WEIGHT_DECAY_PER_WEEK, 0.02),
   },
 
   /**
