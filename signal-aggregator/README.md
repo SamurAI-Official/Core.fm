@@ -593,6 +593,56 @@ and the verdict is `unrated` — never presented as market evidence.
 - `bump = learningRate * (rating - 0.5)`: above-average songs get their genre,
   tags, tempo band and key reinforced; below-average ones get damped.
 
+## Preference: likes, hard nos, and the agreement gate
+
+A rating says "how good was this run". A **verdict** says "I want more of this" or
+"never again" about a specific response to a prompt, and it comes from the dislike button in
+the app. The two are different evidence and the learner treats them differently.
+
+**A dislike is not a low score.** It takes a full step (`LEARNING_RATE`, 0.25) regardless of any
+score beside it; a 0.4 rating takes 0.025. Reasons then decide *what* is blamed, so a complaint
+lands on the part of the song that earned it:
+
+| Reason | Weight keys it moves |
+|---|---|
+| `mix`, `vocals` | production tags only |
+| `genre` | the genre |
+| `tempo` | the tempo band |
+| `lyrics`, `bad-lyrics`, `repetition` | the writing style, the subject, the themes |
+| `language` | the language, the subject |
+| `off-prompt` | genre, subject, production tags (the prompt-to-song translation) |
+| `not-my-kind`, or no reason | everything the response carried |
+
+**One listener cannot move a market.** Every verdict is recorded the moment it arrives, but it is
+stored as one *vote* per weight key it blames, and votes only reach the weights when
+`FEEDBACK_MIN_USERS` **distinct** listeners agree on the same key within `FEEDBACK_WINDOW_DAYS`:
+
+- the same person judging five bad responses is one rater (their votes add magnitude, not agreement);
+- three different people disliking the same tag is a pattern, and their votes are then applied
+  together — the step is what the agreeing votes asked for, still clamped to 0.25–3.0;
+- each promotion marks its votes as used, so the next promotion counts only what arrived since;
+- a vote that never crosses the window simply goes stale.
+
+Until a group crosses, `POST /api/feedback` reports it under `pending` ("2 of 3 listeners agree"),
+and `GET /api/feedback` lists every waiting group — a slow learner you can watch rather than a
+button that seems to do nothing.
+
+**Retraction is real.** `verdict: 'none'` finds the caller's most recent verdict on the same
+response and takes it out of the count: votes that had never crossed are released, and votes that
+had already moved a weight are reversed by applying the opposite step. Reversal lands *roughly* on
+the earlier value, because the weights are clamped — the response says exactly what it did.
+
+**Two escape hatches.** `FEEDBACK_PROMOTE=false` records and reports but never writes, so a
+deployment can watch the distribution of votes before letting any of them act. And
+`FEEDBACK_MIN_USERS=1` makes one listener's verdict act at once, which is the honest setting for a
+single-user install.
+
+Where the votes come from: a song rendered through the aggregator carries its market and its design
+provenance (`market`, `conceptId`, `runId`, `primaryGenre`, `lyricAgent`, `lyricSubject`,
+`lyricThemes`) into the app's job params, so a verdict on the *audio* can be attributed back to the
+design that made it. A song generated straight from the Create tab has no market; its verdict is
+still recorded, with learning switched off, and becomes learnable if it is ever attributed.
+
 ## Honest limitations
 
 - **Tempo is mostly inferred, not measured.** Deezer's public API now returns
@@ -620,6 +670,18 @@ and the verdict is `unrated` — never presented as market evidence.
   It is not streaming counts or revenue.
 - **Human ratings are required for real market evidence.** The loop works without
   them, but it will tell you when it is guessing.
+- **Preference learning is slow by design, and that is the point.** A verdict is recorded
+  instantly but a market only moves when `FEEDBACK_MIN_USERS` distinct listeners agree, so a
+  single-listener install will see verdicts pile up as `pending` and no weights change until
+  `FEEDBACK_MIN_USERS=1` is set. The gate exists because the alternative — the first person to find
+  the button shaping a market — is worse. See "Preference" above.
+- **Agreement is counted in people; magnitude is counted in votes.** Three listeners who each
+  dislike one response move a key by three steps; one of them disliking three responses adds
+  magnitude to the group without adding agreement. The bounds (0.25–3.0) and the planned decay are
+  what keep that from compounding without limit.
+- **A promoted step is only *roughly* reversible.** Retracting a verdict applies the opposite delta,
+  and because weights are clamped, a reversal of a step that was itself clamped cannot land on the
+  exact earlier value. The response reports the value it actually reached.
 - Chart artists appear as market *context* only. Designs are generated from genre,
   tempo and structure evidence, with original titles — no artist's song is imitated.
 
@@ -636,6 +698,9 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `WEIGHT_MARKET_FIT` / `_NOVELTY` / `_HUMAN` | `0.5` / `0.2` / `0.3` | Composite weights |
 | `CHAMPION_THRESHOLD` / `VIABLE_THRESHOLD` | `0.70` / `0.55` | Verdict cutoffs |
 | `LEARNING_RATE` | `0.25` | How hard a rating moves weights |
+| `FEEDBACK_MIN_USERS` | `3` | Distinct listeners who must agree on a weight key before it moves. `1` acts on a single verdict (a single-user install) |
+| `FEEDBACK_WINDOW_DAYS` | `30` | How long a vote counts toward a promotion |
+| `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
 
 ## HTTP API
 
@@ -653,6 +718,8 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `POST /api/concepts/:id/reroll-lyrics` | Rewrite one design's lyrics with a chosen writing style - no design run, no render |
 | `POST /api/concepts/:id/run` | Render a design through the pipeline |
 | `POST /api/ratings` | `{ runId, score, notes? }` → re-score + learn |
+| `POST /api/feedback` | `{ market?, verdict: like\|dislike\|none, rater?, sourceId?, reasons?, features?, learn? }` → record a preference and report what it moved (`applied`) and what is still waiting on other listeners (`pending`). `none` retracts the caller's last verdict on that response |
+| `GET /api/feedback` | The ledger: summary (likes, dislikes, reasons, raters, promoted vs pending), recent verdicts with who gave them, and every group still short of agreement |
 
 
 ## Files
@@ -669,9 +736,10 @@ src/
                   language packs, the subject catalogue, pack primitives, the singability gate
   forecast/   forecast.ts                          damped projections with sample-depth confidence
   schedule/   scheduler.ts                         periodic collection (history for forecasting)
-  pipeline/   client.ts submit.ts run.ts            ACE-Step integration
-  scoring/    fit.ts score.ts                       scoring + learning
-  loops/      cycle.ts rate.ts store.ts ratings.ts  the loop itself
+  pipeline/   client.ts submit.ts run.ts            ACE-Step integration (submit carries attribution)
+  scoring/    fit.ts score.ts feedback.ts            scoring, learning, what a verdict blames
+  loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts
+              the loop, the preference ledger, and the agreement gate over its votes
   report/     overview.ts detail.ts forecast.ts format.ts   reporting
   api/        server.ts dashboard.ts
   db/         index.ts migrate.ts    cli/args.ts     index.ts (CLI)

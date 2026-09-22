@@ -60,7 +60,7 @@ export async function executeConcept(concept: Concept, options: ExecuteOptions =
 
   try {
     const token = await pipeline.authenticate();
-    const jobId = await submitConcept(concept, token);
+    const jobId = await submitConcept(concept, token, { runId });
     setRunJobId(runId, jobId);
     setRunStage(runId, 'running', 'queued in the ACE-Step pipeline');
     log(`run ${runId}: submitted as pipeline job ${jobId}`);

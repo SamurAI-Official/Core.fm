@@ -15,7 +15,10 @@ function num(value: string | undefined, fallback: number): number {
 
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+  // Trimmed, because `set FLAG=true && next-command` is a shell idiom that stores "true " with a
+  // trailing space: without this, a flag set that way read as false and the feature it guards stayed
+  // silently off. A correct value is unaffected; only whitespace-padded ones change meaning.
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 function list(value: string | undefined, fallback: string[]): string[] {
@@ -89,6 +92,21 @@ export const config = {
     championThreshold: num(process.env.CHAMPION_THRESHOLD, 0.7),
     viableThreshold: num(process.env.VIABLE_THRESHOLD, 0.55),
     learningRate: num(process.env.LEARNING_RATE, 0.25),
+  },
+
+  /**
+   * Listener preference (the dislike button) and how much agreement a market's weights require.
+   *
+   * A verdict is recorded the moment it arrives and is visible in the ledger, but it does not move a
+   * market's weights on one listener's word: `minUsers` distinct raters have to agree on the same key
+   * within `windowDays`. Without that gate the first person to find the button shapes the market.
+   * A single-user deployment can set FEEDBACK_MIN_USERS=1 to see it act immediately.
+   */
+  feedback: {
+    minUsers: num(process.env.FEEDBACK_MIN_USERS, 3),
+    windowDays: num(process.env.FEEDBACK_WINDOW_DAYS, 30),
+    /** Off = record votes and report what is pending, but never move a market's weights. */
+    promote: bool(process.env.FEEDBACK_PROMOTE, true),
   },
 
   keys: {

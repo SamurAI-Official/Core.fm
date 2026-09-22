@@ -20,8 +20,18 @@ export interface JobResult {
   timeSignature?: string;
 }
 
-/** Maps a concept to the ace-step-ui generation payload. */
-export function conceptToBody(concept: Concept): Record<string, unknown> {
+/**
+ * Maps a concept to the ace-step-ui generation payload.
+ *
+ * The last block is *attribution*, not generation: which market this response answers, which concept
+ * and run it belongs to, and the lyric-side choices that shaped it. The engine ignores all of it (the
+ * UI builds the Gradio argument list from a fixed list of names), but the UI stores the request
+ * verbatim on every song it creates - so a verdict on one of these songs can be attributed back to the
+ * market and to the writing style, subject and language that produced it, which is what makes a
+ * dislike on a *rendered* song learnable at all.
+ */
+export function conceptToBody(concept: Concept, attribution?: { runId?: string }): Record<string, unknown> {
+  const params = concept.params ?? {};
   return {
     customMode: true,
     style: concept.style,
@@ -40,14 +50,28 @@ export function conceptToBody(concept: Concept): Record<string, unknown> {
     audioFormat: config.design.audioFormat,
     seed: concept.seed,
     randomSeed: false,
+    // --- attribution ---
+    market: concept.market,
+    conceptId: concept.id,
+    runId: attribution?.runId,
+    primaryGenre: concept.primaryGenre,
+    lyricAgent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
+    lyricSubject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,
+    lyricLanguage: concept.vocalLanguage,
+    lyricThemes: Array.isArray(params.lyricThemes) ? params.lyricThemes : undefined,
+    designSeed: concept.seed,
   };
 }
 
-export async function submitConcept(concept: Concept, token: string): Promise<string> {
+export async function submitConcept(
+  concept: Concept,
+  token: string,
+  attribution?: { runId?: string },
+): Promise<string> {
   const response = await fetchWithRetry(`${pipeline.baseUrl}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(conceptToBody(concept)),
+    body: JSON.stringify(conceptToBody(concept, attribution)),
     timeoutMs: 60000,
     retries: 1,
   });
