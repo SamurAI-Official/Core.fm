@@ -8,6 +8,41 @@ import { SongDropdownMenu } from './SongDropdownMenu';
 import { ShareModal } from './ShareModal';
 import { AlbumCover } from './AlbumCover';
 
+/**
+ * The reason ids a hard no can carry.
+ *
+ * These are the ids the aggregator's learner maps to weights (`scoring/feedback.ts`), so the two lists
+ * have to agree: `off-prompt` moves the genre/themes/tags that turned the prompt into a style prompt,
+ * `bad-lyrics` moves the writing style and subject, `mix`/`vocals`/`artifacts` move production tags,
+ * and `not-my-kind` deliberately maps to nothing, which the learner reads as "blame everything this
+ * response carried". An id nobody has modelled is reported back rather than silently ignored.
+ */
+export const DISLIKE_REASONS = [
+    'off-prompt',
+    'bad-lyrics',
+    'mix',
+    'wrong-genre',
+    'tempo',
+    'vocals',
+    'repetition',
+    'language',
+    'not-my-kind',
+] as const;
+
+export type DislikeReason = (typeof DISLIKE_REASONS)[number];
+
+const REASON_LABEL_KEYS = {
+    'off-prompt': 'dislikeReasonOffPrompt',
+    'bad-lyrics': 'dislikeReasonLyrics',
+    'mix': 'dislikeReasonMix',
+    'wrong-genre': 'dislikeReasonGenre',
+    'tempo': 'dislikeReasonTempo',
+    'vocals': 'dislikeReasonVocals',
+    'repetition': 'dislikeReasonRepetition',
+    'language': 'dislikeReasonLanguage',
+    'not-my-kind': 'dislikeReasonUnattributed',
+} as const;
+
 interface PlayerProps {
     currentSong: Song | null;
     isPlaying: boolean;
@@ -35,6 +70,10 @@ interface PlayerProps {
      */
     isDisliked?: boolean;
     onToggleDislike?: () => void;
+    /** The reasons already attached to this hard no, for the chip row. */
+    dislikeReasons?: string[];
+    /** Toggle one reason on or off; the caller re-sends the whole set. */
+    onToggleDislikeReason?: (reason: string) => void;
     onNavigateToSong?: (songId: string) => void;
     onOpenVideo?: () => void;
     onReusePrompt?: () => void;
@@ -65,6 +104,8 @@ export const Player: React.FC<PlayerProps> = ({
     onToggleLike,
     isDisliked,
     onToggleDislike,
+    dislikeReasons,
+    onToggleDislikeReason,
     onNavigateToSong,
     onOpenVideo,
     onReusePrompt,
@@ -227,6 +268,40 @@ export const Player: React.FC<PlayerProps> = ({
                             )}
                         </div>
                     </div>
+
+                    {/*
+                      * Why, not just no. Appearing only once the hard no is set keeps the button a
+                      * single click, and the reasons are optional: the verdict is already recorded, so
+                      * this row refines an existing complaint rather than gating it.
+                      */}
+                    {isDisliked && onToggleDislikeReason && (
+                        <div className="px-6 pb-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-[11px] text-zinc-500 dark:text-white/50">
+                                    {t('dislikeWhy')}
+                                </span>
+                                {DISLIKE_REASONS.map((reason) => {
+                                    const active = (dislikeReasons ?? []).includes(reason);
+                                    return (
+                                        <button
+                                            key={reason}
+                                            onClick={() => onToggleDislikeReason(reason)}
+                                            className={`px-2 py-0.5 rounded-full text-[11px] transition-colors ${
+                                                active
+                                                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-black'
+                                                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-white/10 dark:text-white/70 dark:hover:bg-white/20'
+                                            }`}
+                                        >
+                                            {t(REASON_LABEL_KEYS[reason])}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1 text-[10px] text-zinc-400 dark:text-white/40">
+                                {t('dislikeReasonHint')}
+                            </p>
+                        </div>
+                    )}
 
                     {/* Progress Bar */}
                     <div className="px-6 mb-2">

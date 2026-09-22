@@ -478,6 +478,13 @@ router.post('/:id/like', authMiddleware, async (req: AuthenticatedRequest, res: 
         'UPDATE songs SET like_count = like_count + 1 WHERE id = $1',
         [req.params.id]
       );
+      // Reconcile the other direction too: this route is the older of the two, and a like arriving
+      // here must clear a hard no for the same reason it does on /feedback - otherwise a song can end
+      // up both liked and rejected, and the learner would read two opposite verdicts as equivalent.
+      await client.query(
+        "DELETE FROM song_feedback WHERE user_id = $1 AND song_id = $2 AND verdict = 'dislike'",
+        [req.user!.id, req.params.id]
+      );
       await client.query('COMMIT');
       res.json({ liked: true });
     }
@@ -611,15 +618,20 @@ router.get('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, re
   }
 });
 
-/** This user's verdicts, so the buttons render correctly after a reload. */
+/** This user's verdicts (and any reasons), so the buttons render correctly after a reload. */
 router.get('/feedback/mine', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT song_id, verdict FROM song_feedback WHERE user_id = $1',
+      'SELECT song_id, verdict, reasons FROM song_feedback WHERE user_id = $1',
       [req.user!.id],
     );
-    const verdicts: Record<string, string> = {};
-    for (const row of result.rows) verdicts[String(row.song_id)] = String(row.verdict);
+    const verdicts: Record<string, { verdict: string; reasons: string[] }> = {};
+    for (const row of result.rows) {
+      verdicts[String(row.song_id)] = {
+        verdict: String(row.verdict),
+        reasons: row.reasons ? JSON.parse(String(row.reasons)) : [],
+      };
+    }
     res.json({ verdicts });
   } catch (error) {
     console.error('List song feedback error:', error);

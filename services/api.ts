@@ -227,8 +227,10 @@ export const songsApi = {
   ): Promise<{ verdict: 'like' | 'dislike' | null; reasons: string[]; promptId: string | null }> =>
     api(`/api/songs/${id}/feedback`, { token }),
 
-  /** Every verdict this user has given, keyed by song id, so the buttons survive a reload. */
-  getMyFeedback: (token: string): Promise<{ verdicts: Record<string, 'like' | 'dislike'> }> =>
+  /** Every verdict this user has given, with any reasons, so the buttons survive a reload. */
+  getMyFeedback: (
+    token: string,
+  ): Promise<{ verdicts: Record<string, { verdict: 'like' | 'dislike'; reasons: string[] }> }> =>
     api('/api/songs/feedback/mine', { token }),
 
   getLikedSongs: async (token: string): Promise<{ songs: Song[] }> => {

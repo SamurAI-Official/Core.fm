@@ -129,6 +129,18 @@ export const translations = {
     loraNoneSelected: 'Select a LoRA model...',
     loraSignInRequired: 'Sign in to select a LoRA model',
     loraPathRequired: 'Enter a LoRA path',
+    // Reaction reasons: what was wrong with a response, so a hard no can blame the right part of it.
+    dislikeWhy: 'What was wrong?',
+    dislikeReasonOffPrompt: 'Not what I asked for',
+    dislikeReasonLyrics: 'Lyrics',
+    dislikeReasonMix: 'Mix',
+    dislikeReasonGenre: 'Wrong style',
+    dislikeReasonTempo: 'Tempo',
+    dislikeReasonVocals: 'Vocals',
+    dislikeReasonRepetition: 'Repetitive',
+    dislikeReasonLanguage: 'Language',
+    dislikeReasonUnattributed: 'Just not for me',
+    dislikeReasonHint: 'Optional - tap the reason and we stop doing it for you',
 
 
     
@@ -746,6 +758,17 @@ export const translations = {
     loraNoneSelected: '请选择 LoRA 模型...',
     loraSignInRequired: '请登录以选择 LoRA 模型',
     loraPathRequired: '请输入 LoRA 路径',
+    dislikeWhy: '哪里有问题？',
+    dislikeReasonOffPrompt: '不是我想要的',
+    dislikeReasonLyrics: '歌词',
+    dislikeReasonMix: '混音',
+    dislikeReasonGenre: '风格不对',
+    dislikeReasonTempo: '速度',
+    dislikeReasonVocals: '人声',
+    dislikeReasonRepetition: '重复太多',
+    dislikeReasonLanguage: '语言',
+    dislikeReasonUnattributed: '就是不喜欢',
+    dislikeReasonHint: '可选 – 点上原因，我们就不再这样生成',
 
 
     
@@ -1363,6 +1386,17 @@ export const translations = {
     loraNoneSelected: 'LoRA モデルを選択...',
     loraSignInRequired: 'LoRA モデルを選択するにはサインインしてください',
     loraPathRequired: 'LoRA パスを入力してください',
+    dislikeWhy: 'どこが違いましたか？',
+    dislikeReasonOffPrompt: 'イメージと違う',
+    dislikeReasonLyrics: '歌詞',
+    dislikeReasonMix: 'ミックス',
+    dislikeReasonGenre: 'スタイルが違う',
+    dislikeReasonTempo: 'テンポ',
+    dislikeReasonVocals: 'ボーカル',
+    dislikeReasonRepetition: '繰り返しが多い',
+    dislikeReasonLanguage: '言語',
+    dislikeReasonUnattributed: '好みではない',
+    dislikeReasonHint: '任意 – 理由を選ぶと、次からそうならないようにします',
 
 
     
@@ -1980,6 +2014,17 @@ export const translations = {
     loraNoneSelected: 'LoRA 모델 선택...',
     loraSignInRequired: 'LoRA 모델을 선택하려면 로그인하세요',
     loraPathRequired: 'LoRA 경로를 입력하세요',
+    dislikeWhy: '무엇이 잘못됐나요?',
+    dislikeReasonOffPrompt: '원한 것과 달라요',
+    dislikeReasonLyrics: '가사',
+    dislikeReasonMix: '믹스',
+    dislikeReasonGenre: '스타일이 달라요',
+    dislikeReasonTempo: '템포',
+    dislikeReasonVocals: '보컬',
+    dislikeReasonRepetition: '반복이 많아요',
+    dislikeReasonLanguage: '언어',
+    dislikeReasonUnattributed: '그냥 취향이 아니에요',
+    dislikeReasonHint: '선택 사항 – 이유를 고르면 그런 식으로 만들지 않습니다',
 
 
     
