@@ -74,6 +74,13 @@ interface PlayerProps {
     dislikeReasons?: string[];
     /** Toggle one reason on or off; the caller re-sends the whole set. */
     onToggleDislikeReason?: (reason: string) => void;
+    /**
+     * Render another take of the same prompt. Offered only alongside a hard no, and optional for the
+     * same reason that is: a surface that cannot queue a render simply does not offer one.
+     */
+    onRetry?: () => void;
+    /** True while a retry is being queued, so the button cannot be pressed twice. */
+    isRetrying?: boolean;
     onNavigateToSong?: (songId: string) => void;
     onOpenVideo?: () => void;
     onReusePrompt?: () => void;
@@ -106,6 +113,8 @@ export const Player: React.FC<PlayerProps> = ({
     onToggleDislike,
     dislikeReasons,
     onToggleDislikeReason,
+    onRetry,
+    isRetrying,
     onNavigateToSong,
     onOpenVideo,
     onReusePrompt,
@@ -300,6 +309,21 @@ export const Player: React.FC<PlayerProps> = ({
                             <p className="mt-1 text-[10px] text-zinc-400 dark:text-white/40">
                                 {t('dislikeReasonHint')}
                             </p>
+                            {/*
+                              * The hard no's consequence: a different take of the same prompt. Offered
+                              * only once the response has been refused, because that is the only time it
+                              * means anything - and it is a separate action from the verdict, so a
+                              * listener who just wants to record "no" is not obliged to render again.
+                              */}
+                            {onRetry && (
+                                <button
+                                    onClick={onRetry}
+                                    disabled={isRetrying}
+                                    className="mt-2 px-3 py-1 rounded-full text-[11px] font-medium bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:text-black dark:hover:bg-white/90"
+                                >
+                                    {isRetrying ? t('retrying') : t('tryAgain')}
+                                </button>
+                            )}
                         </div>
                     )}
 

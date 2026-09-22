@@ -40,6 +40,8 @@ export interface PreferenceOutcome {
   error?: string;
   /** Weight keys this verdict moved now, because enough distinct listeners agree. */
   applied: string[];
+  /** Keys it moved in the *listener's own* profile, immediately - no agreement needed. */
+  profile: string[];
   /** Keys still short of agreement, with how many listeners are with this one so far. */
   pending: Array<{ key: string; raters: number; needed: number }>;
   /** Set when the verdict retracted an earlier one. */
@@ -48,7 +50,7 @@ export interface PreferenceOutcome {
 }
 
 export async function reportPreference(report: PreferenceReport): Promise<PreferenceOutcome> {
-  const empty: PreferenceOutcome = { ok: false, applied: [], pending: [], market: report.market };
+  const empty: PreferenceOutcome = { ok: false, applied: [], profile: [], pending: [], market: report.market };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
   try {
@@ -61,6 +63,7 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
     const payload = (await response.json()) as {
       error?: string;
       applied?: unknown;
+      profile?: unknown;
       pending?: unknown;
       withdrawn?: unknown;
     };
@@ -81,6 +84,7 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
     return {
       ok: true,
       applied: Array.isArray(payload.applied) ? payload.applied.map(String) : [],
+      profile: Array.isArray(payload.profile) ? payload.profile.map(String) : [],
       pending,
       withdrawn: withdrawn
         ? {
@@ -97,3 +101,130 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
     clearTimeout(timer);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Layer U: the listener's own profile, and what a retry should change
+// ---------------------------------------------------------------------------
+
+export interface UserProfileSummary {
+  rater: string;
+  /** How many verdicts this profile is built from - the honest measure of how much to trust it. */
+  verdicts: number;
+  prefers: Array<{ key: string; value: number }>;
+  avoids: Array<{ key: string; value: number }>;
+  updatedAt: string | null;
+}
+
+/**
+ * This listener's own profile.
+ *
+ * Returns `ok: false` rather than throwing when the aggregator is not running: a profile is an
+ * enhancement, and the Create tab has to work without one. The caller decides how thin is too thin -
+ * `verdicts` is reported for exactly that.
+ */
+export async function fetchProfile(
+  rater: string,
+  market?: string,
+): Promise<{ ok: boolean; error?: string; profile: UserProfileSummary | null }> {
+  const url = new URL(`${config.aggregator.url}/api/users/${encodeURIComponent(rater)}/profile`);
+  if (market) url.searchParams.set('market', market);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return { ok: false, error: `aggregator responded ${response.status}`, profile: null };
+    const payload = (await response.json()) as UserProfileSummary;
+    return { ok: true, profile: payload };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message, profile: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface NextTakeRequest {
+  rater: string;
+  reasons: string[];
+  /** The params of the take being retried, verbatim. */
+  previous: Record<string, unknown>;
+  excludeSeeds: number[];
+  attempt?: number;
+}
+
+export interface NextTakePlan {
+  seed: number;
+  patch: {
+    bpm?: number;
+    keyScale?: string;
+    style?: string;
+    lyricAgent?: string;
+    lyricSubject?: string;
+  };
+  note: string[];
+  excluded: number[];
+  unactionable: string[];
+  machineDesigned: boolean;
+}
+
+/**
+ * Asks the aggregator what to change, because it owns the vocabularies (genres, production tags,
+ * writing styles) and the listener's profile. A failure here is reported, never fatal: a retry that
+ * cannot get an opinion still deserves a different take, and the caller falls back to a fresh seed.
+ */
+export async function planNextTake(
+  request: NextTakeRequest,
+): Promise<{ ok: boolean; error?: string; plan: NextTakePlan | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
+  try {
+    const response = await fetch(`${config.aggregator.url}/api/next-take`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+    const payload = (await response.json()) as NextTakePlan & { error?: string };
+    if (!response.ok) return { ok: false, error: payload.error ?? `aggregator responded ${response.status}`, plan: null };
+    return { ok: true, plan: payload };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message, plan: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Rewrites a design's lyrics with a different writing style.
+ *
+ * Needed because changing the declared writing style without changing the words would leave a song
+ * whose params claim something its lyrics do not do. This is the aggregator's own reroll endpoint, so
+ * the retry reuses the loop's lyric writer rather than inventing a second one.
+ */
+export async function rerollConceptLyrics(
+  conceptId: string,
+  agent: string,
+  seed?: number,
+): Promise<{ ok: boolean; error?: string; lyrics: string | null; style: string | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
+  try {
+    const response = await fetch(`${config.aggregator.url}/api/concepts/${encodeURIComponent(conceptId)}/reroll-lyrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent, seed }),
+      signal: controller.signal,
+    });
+    const payload = (await response.json()) as {
+      error?: string;
+      concept?: { lyrics?: string };
+      style?: { id?: string };
+    };
+    if (!response.ok) return { ok: false, error: payload.error ?? `aggregator responded ${response.status}`, lyrics: null, style: null };
+    return { ok: true, lyrics: payload.concept?.lyrics ?? null, style: payload.style?.id ?? agent };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message, lyrics: null, style: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+

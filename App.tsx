@@ -12,7 +12,7 @@ import { UserProfile } from './components/UserProfile';
 import { SettingsModal } from './components/SettingsModal';
 import { SongProfile } from './components/SongProfile';
 import { Song, GenerationParams, View, Playlist } from './types';
-import { generateApi, songsApi, playlistsApi, getAudioUrl } from './services/api';
+import { generateApi, songsApi, playlistsApi, getAudioUrl, type TasteProfile } from './services/api';
 import { useAuth } from './context/AuthContext';
 import { useResponsive } from './context/ResponsiveContext';
 import { I18nProvider, useI18n } from './context/I18nContext';
@@ -61,6 +61,15 @@ function AppContent() {
   const [dislikedSongIds, setDislikedSongIds] = useState<Set<string>>(new Set());
   /** Why each hard no was given, keyed by song id; empty until the listener taps a reason. */
   const [dislikeReasons, setDislikeReasons] = useState<Record<string, string[]>>({});
+  /** The song currently being retried, so the button cannot be pressed twice. */
+  const [retryingSongId, setRetryingSongId] = useState<string | null>(null);
+  /**
+   * What this listener wants more and less of, as the loop has learned it from their own verdicts.
+   * Held here because two surfaces use it - the retry (which asks the loop what to change) and the
+   * Create tab's suggestion row - and `profileConfident` because one click is a hint, not a taste.
+   */
+  const [profile, setProfile] = useState<TasteProfile | null>(null);
+  const [profileConfident, setProfileConfident] = useState(false);
   const [referenceTracks, setReferenceTracks] = useState<ReferenceTrack[]>([]);
   const [playQueue, setPlayQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -1065,6 +1074,83 @@ function AppContent() {
   };
 
   /**
+   * Another take on the prompt this response answered.
+   *
+   * The server decides what to change - the loop owns the listener's profile and the vocabularies, and
+   * it never rewrites a prompt the listener wrote themselves - so this reports the decision and then
+   * treats the render exactly like a fresh generation: a placeholder in the list, polled until the
+   * audio lands. What changed is translated from the response's structured `changes` rather than shown
+   * as the loop's English `note`, so the explanation matches the interface's language; the loop's own
+   * words stay on the song's params for anyone reading them.
+   */
+  const retrySong = async (songId: string) => {
+    if (!token) return;
+    const original = songs.find(s => s.id === songId) ?? selectedSong;
+    setRetryingSongId(songId);
+    try {
+      const result = await songsApi.retry(songId, token, { reasons: dislikeReasons[songId] ?? [] });
+      const parts: string[] = [];
+      if (typeof result.changes?.bpm === 'number') parts.push(`${t('retryTempo')} ${result.changes.bpm} BPM`);
+      if (result.changes?.keyScale) parts.push(`${t('retryKey')} ${result.changes.keyScale}`);
+      if (result.changes?.style) parts.push(t('retryStyleTags'));
+      if (result.changes?.lyricAgent) parts.push(t('retryWritingStyle'));
+      const summary = parts.length > 0 ? parts.join(' · ') : t('retryNewSeed');
+      showToast(`${t('retryStarted')} ${summary}`, 'success');
+      if ((result.unactionable ?? []).length > 0) {
+        showToast(`${t('retryNotChanged')} ${result.unactionable[0].split(':')[0]}`, 'info');
+      }
+
+      const tempId = `temp_retry_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const tempSong: Song = {
+        id: tempId,
+        title: original ? `${original.title} (${t('retryTake')} ${result.attempt + 1})` : t('retryTake'),
+        lyrics: '',
+        style: original?.style ?? '',
+        coverUrl: 'https://picsum.photos/200/200?blur=10',
+        duration: '--:--',
+        createdAt: new Date(),
+        isGenerating: true,
+        tags: ['retry'],
+        isPublic: true,
+      };
+      setSongs(prev => [tempSong, ...prev]);
+      setSelectedSong(tempSong);
+      setMobileShowList(false);
+      beginPollingJob(result.jobId as string, tempId);
+    } catch (error) {
+      console.error('Retry error:', error);
+      showToast(t('retryFailed'), 'error');
+    } finally {
+      setRetryingSongId(null);
+    }
+  };
+
+  /**
+   * This listener's own profile: what they want more and less of.
+   *
+   * Fetched, not assumed: the response says how many verdicts it is built from, and a single click is
+   * reported as a hint rather than a preference - which is what `profileConfident` carries, and what
+   * the Create tab's suggestion row gates itself on.
+   */
+  const loadProfile = useCallback(async () => {
+    if (!token) return;
+    try {
+      const result = await songsApi.getProfile(token);
+      setProfile(result.ok ? result.profile : null);
+      setProfileConfident(Boolean(result.confident));
+    } catch (error) {
+      // A profile is an enhancement: without it the app behaves exactly as it did before.
+      console.error('Profile fetch failed:', error);
+      setProfile(null);
+      setProfileConfident(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (isAuthenticated && token) void loadProfile();
+  }, [isAuthenticated, token, loadProfile]);
+
+  /**
    * The hard no: "not this response to my prompt".
    *
    * Clicking again clears it, because a hard no is a statement the listener must be able to take back
@@ -1125,6 +1211,9 @@ function AppContent() {
         else next.delete(songId);
         return next;
       });
+      // The verdict moved this listener's profile, so the surfaces that read it are refreshed rather
+      // than left showing the taste they had before the click.
+      void loadProfile();
     } catch (error) {
       console.error('Failed to record dislike:', error);
       // Revert the button so the UI never claims a verdict the server does not have.
@@ -1471,6 +1560,8 @@ function AppContent() {
                 createdSongs={songs}
                 pendingAudioSelection={pendingAudioSelection}
                 onAudioSelectionApplied={() => setPendingAudioSelection(null)}
+                tasteProfile={profile}
+                tasteConfident={profileConfident}
               />
             </div>
 
@@ -1601,6 +1692,8 @@ function AppContent() {
         onToggleDislike={() => currentSong && toggleDislike(currentSong.id)}
         dislikeReasons={currentSong ? dislikeReasons[currentSong.id] ?? [] : []}
         onToggleDislikeReason={reason => currentSong && toggleDislikeReason(currentSong.id, reason)}
+        onRetry={() => currentSong && retrySong(currentSong.id)}
+        isRetrying={Boolean(currentSong && retryingSongId === currentSong.id)}
         onNavigateToSong={handleNavigateToSong}
         onOpenVideo={() => currentSong && openVideoGenerator(currentSong)}
         onReusePrompt={() => currentSong && handleReuse(currentSong)}

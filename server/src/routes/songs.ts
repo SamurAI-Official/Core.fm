@@ -4,7 +4,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../db/pool.js';
 import { authMiddleware, optionalAuthMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getStorageProvider } from '../services/storage/factory.js';
-import { reportPreference } from '../services/aggregator.js';
+import {
+  fetchProfile,
+  planNextTake,
+  reportPreference,
+  rerollConceptLyrics,
+} from '../services/aggregator.js';
+import { createGenerationJob } from '../services/generation.js';
+// Only for the type of the stored request a retry replays; the engine call itself is inside the service.
+import type { GenerationParams } from '../services/acestep.js';
 
 const router = Router();
 
@@ -602,7 +610,9 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
       // needs the response, because that is what the verdict is about.
       sourceId: String(req.params.id),
       reasons,
-      learn: Boolean(market),
+      // `learn` is left to the aggregator: a verdict always teaches the *listener's own* profile (there
+      // is nothing to wait for - it is their taste), while reaching a market's weights needs a market
+      // and agreement. A Create-tab song has no market, so its verdict simply stops at the profile.
       features: {
         genre: typeof params.primaryGenre === 'string' ? params.primaryGenre : undefined,
         bpm: typeof params.bpm === 'number' ? params.bpm : undefined,
@@ -635,6 +645,244 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
     res.status(500).json({ error: 'Internal server error' });
   } finally {
     client.release();
+  }
+});
+
+/**
+ * Another take: the listener rejected this response to their own prompt and wants a different one.
+ *
+ * This is what makes a hard no *do* something. The verdict was theirs and the loop remembers it
+ * (Layer U's profile); this turns it into a different render, under one rule: only the things the loop
+ * chose may change. A tempo band, a key, a production tag, a writing style - those were drawn for the
+ * listener. The words of a prompt they typed are not, and are never rewritten here.
+ *
+ * The chain is recorded (`retryOf`, `retryRoot`, `retryNote`, `retryExcludedSeeds`) so the next retry
+ * knows every seed already heard, and so "why is this different from what I asked for?" is answerable
+ * from the song itself rather than by comparing two renders by ear.
+ *
+ * `dryRun` returns the decision without creating a job: that is how the decision is inspected - and
+ * tested - without spending a GPU render on it.
+ */
+router.post('/:id/retry', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as { reasons?: unknown; dryRun?: unknown };
+    const song = await pool.query('SELECT id, prompt_id, generation_params FROM songs WHERE id = $1', [
+      req.params.id,
+    ]);
+    const row = song.rows[0];
+    if (!row) {
+      res.status(404).json({ error: 'song not found' });
+      return;
+    }
+    const previous = (() => {
+      const raw = row.generation_params;
+      if (typeof raw !== 'string' || raw.length === 0) return {} as Record<string, unknown>;
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return {} as Record<string, unknown>;
+      }
+    })();
+    const promptId = row.prompt_id ? String(row.prompt_id) : null;
+    const root = typeof previous.retryRoot === 'string' ? previous.retryRoot : promptId;
+
+    // A retry reuses the stored request verbatim, so a song without one (a row from before params were
+    // stored, or a song whose generation failed before any were) cannot be retried. Say so rather than
+    // queueing a job the engine will reject.
+    if (typeof previous.style !== 'string' || previous.style.length === 0) {
+      res.status(409).json({
+        error: 'this song has no stored request to retry from',
+        hint: 'songs created before generation params were recorded cannot be retried',
+      });
+      return;
+    }
+
+    // Everything this listener has already rejected on this prompt and its retries: those seeds must
+    // never be served again, because a retry that returns the refused take is not a retry.
+    // Placeholders are bound in the order they appear (see db/pool.ts), so user, prompt, root.
+    const chain = await pool.query(
+      `SELECT s.generation_params, f.reasons
+       FROM songs s
+       JOIN song_feedback f ON f.song_id = s.id AND f.user_id = $1 AND f.verdict = 'dislike'
+       WHERE s.prompt_id = $2 OR json_extract(s.generation_params, '$.retryRoot') = $3`,
+      [req.user!.id, root, root],
+    );
+    const excludeSeeds: number[] = [];
+    const reasonsFromVerdicts: string[] = [];
+    for (const entry of chain.rows) {
+      try {
+        const params = JSON.parse(String(entry.generation_params)) as { seed?: number };
+        if (typeof params.seed === 'number' && params.seed >= 0) excludeSeeds.push(params.seed);
+      } catch {
+        // A row whose params cannot be read simply contributes no seed to avoid.
+      }
+      if (entry.reasons) {
+        try {
+          const list = JSON.parse(String(entry.reasons)) as unknown;
+          if (Array.isArray(list)) reasonsFromVerdicts.push(...list.map(String));
+        } catch {
+          // Reasons are advisory here: an unreadable list means an unattributed complaint.
+        }
+      }
+    }
+    const explicit = Array.isArray(body.reasons)
+      ? body.reasons.filter((reason): reason is string => typeof reason === 'string')
+      : [];
+
+    // This song's *own* verdict, always, before the chain: a retry is by definition a response to being
+    // refused, so the take being retried is excluded even when the chain cannot be traced (songs from
+    // before `prompt_id` was recorded have no chain, and their seed would otherwise be served again -
+    // which is exactly the thing a retry must never do). Its reasons count for the same reason: a
+    // reason list that went missing would turn a specific complaint into a blanket one.
+    const own = await pool.query(
+      'SELECT verdict, reasons FROM song_feedback WHERE song_id = $1 AND user_id = $2',
+      [req.params.id, req.user!.id],
+    );
+    const ownReasons: string[] = (() => {
+      const raw = own.rows[0]?.reasons;
+      if (!raw) return [];
+      try {
+        const list = JSON.parse(String(raw)) as unknown;
+        return Array.isArray(list) ? list.map(String) : [];
+      } catch {
+        return [];
+      }
+    })();
+    const ownSeed = typeof previous.seed === 'number' && previous.seed >= 0 ? previous.seed : null;
+    if (ownSeed !== null) excludeSeeds.push(ownSeed);
+    const reasons = [...new Set([...explicit, ...ownReasons, ...reasonsFromVerdicts])];
+
+    // A take rendered from a random seed does not record the seed it actually used, so it cannot be
+    // avoided by name. The retry still gets a fresh explicit seed; the limit is stated in `note`.
+    const seedWasRandom = previous.randomSeed === true || (typeof previous.seed === 'number' && previous.seed < 0);
+
+    const attempt = await pool.query(
+      `SELECT COUNT(DISTINCT prompt_id) AS n FROM songs
+       WHERE prompt_id = $1 OR json_extract(generation_params, '$.retryRoot') = $2`,
+      [root, root],
+    );
+    const attemptNumber = Math.max(0, Number(attempt.rows[0]?.n ?? 1) - 1);
+
+    const planned = await planNextTake({
+      rater: `app:${req.user!.id}`,
+      reasons,
+      previous,
+      excludeSeeds,
+      attempt: attemptNumber,
+    });
+    const plan = planned.plan;
+    // Fall back to a fresh seed when the aggregator is not running: a retry must still be a retry.
+    const excluded = new Set(excludeSeeds);
+    let seed = plan?.seed;
+    if (seed === undefined || excluded.has(seed)) {
+      seed = Math.floor(Math.random() * 4294967295);
+      while (excluded.has(seed)) seed = Math.floor(Math.random() * 4294967295);
+    }
+    const note = [...(plan?.note ?? ['a new seed'])];
+    if (seedWasRandom && ownSeed === null) {
+      note.push(
+        'this take used a random seed, so its exact seed could not be avoided; the new one is explicit',
+      );
+    }
+    if (promptId === null) {
+      note.push('this song predates prompt tracking, so only its own take could be excluded');
+    }
+    if (!planned.ok) {
+      note.push(`the loop could not be asked why (${planned.error}); the seed is the only change`);
+    }
+
+    const params: Record<string, unknown> = {
+      ...previous,
+      seed,
+      randomSeed: false,
+      retryOf: promptId,
+      retryRoot: root,
+      retryAttempt: attemptNumber + 1,
+      retryReasons: reasons,
+      retryExcludedSeeds: [...excluded],
+      retryNote: note,
+      retryUnactionable: plan?.unactionable ?? [],
+    };
+    for (const key of ['bpm', 'keyScale', 'style'] as const) {
+      const value = plan?.patch?.[key];
+      if (value !== undefined) params[key] = value;
+    }
+
+    // A different writing style needs different words, or the song claims a style its lyrics do not
+    // follow. The loop rewrites them (its own lyric writer). If that is unavailable the original words
+    // stay and the retry says so, rather than mislabelling them.
+    let lyricsRerolled = false;
+    const conceptId = typeof previous.conceptId === 'string' ? previous.conceptId : null;
+    if (plan?.patch?.lyricAgent && conceptId) {
+      const reroll = await rerollConceptLyrics(conceptId, plan.patch.lyricAgent, seed);
+      if (reroll.ok && reroll.lyrics) {
+        params.lyrics = reroll.lyrics;
+        params.lyricAgent = plan.patch.lyricAgent;
+        lyricsRerolled = true;
+        note.push(`the words were rewritten by ${plan.patch.lyricAgent}`);
+      } else {
+        note.push(`the writing style was NOT changed (${reroll.error ?? 'no lyrics returned'})`);
+      }
+    } else if (plan?.patch?.lyricAgent) {
+      note.push('the writing style was not changed: this prompt has no design behind it to rewrite the words');
+    }
+
+    const payload = {
+      promptId,
+      root,
+      attempt: attemptNumber + 1,
+      reasons,
+      excludedSeeds: [...excluded],
+      seed,
+      changes: {
+        bpm: plan?.patch?.bpm ?? null,
+        keyScale: plan?.patch?.keyScale ?? null,
+        style: plan?.patch?.style ?? null,
+        lyricAgent: lyricsRerolled ? plan.patch.lyricAgent : null,
+      },
+      note,
+      unactionable: plan?.unactionable ?? [],
+      machineDesigned: plan?.machineDesigned ?? false,
+      learnerReachable: planned.ok,
+    };
+
+    if (body.dryRun === true) {
+      res.json({ dryRun: true, songId: String(req.params.id), ...payload, error: planned.error ?? null });
+      return;
+    }
+
+    // The stored request *is* a GenerationParams - this app wrote it - but it is persisted as JSON, so
+    // the only way to get the type back is through `unknown`. The guard above has already established
+    // that the required fields survived.
+    const created = await createGenerationJob(req.user!.id, params as unknown as GenerationParams);
+    res.json({ jobId: created.jobId, status: 'queued', ...payload });
+  } catch (error) {
+    console.error('Song retry error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * This listener's own profile: what they want more and less of, and what to do with it.
+ *
+ * Exposed so the client can use it honestly - the response carries how many verdicts are behind it, so
+ * a surface can decide for itself that one click is not yet a taste. A failure to reach the loop is
+ * reported rather than raised: a profile is an enhancement, and the app works without one.
+ */
+router.get('/profile/me', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const market = req.query.market ? String(req.query.market).toLowerCase() : undefined;
+    const result = await fetchProfile(`app:${req.user!.id}`, market);
+    res.json({
+      ok: result.ok,
+      error: result.error ?? null,
+      profile: result.profile,
+      /** Below this, a surface should treat the profile as a hint rather than a preference. */
+      confident: (result.profile?.verdicts ?? 0) >= 2,
+    });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

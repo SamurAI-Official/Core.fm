@@ -19,6 +19,7 @@ import {
   resolvePythonPath,
 } from '../services/acestep.js';
 import { getStorageProvider } from '../services/storage/factory.js';
+import { createGenerationJob } from '../services/generation.js';
 
 const router = Router();
 
@@ -368,22 +369,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       designSeed,
     };
 
-    // Create job record in database
-    const localJobId = generateUUID();
-    await pool.query(
-      `INSERT INTO generation_jobs (id, user_id, status, params, created_at, updated_at)
-       VALUES (?, ?, 'queued', ?, datetime('now'), datetime('now'))`,
-      [localJobId, req.user!.id, JSON.stringify(params)]
-    );
-
-    // Start generation
-    const { jobId: hfJobId } = await generateMusicViaAPI(params);
-
-    // Update job with ACE-Step task ID
-    await pool.query(
-      `UPDATE generation_jobs SET acestep_task_id = ?, status = 'running', updated_at = datetime('now') WHERE id = ?`,
-      [hfJobId, localJobId]
-    );
+    // Create the job and hand it to the engine. Shared with the retry path (services/generation.ts).
+    const { jobId: localJobId } = await createGenerationJob(req.user!.id, params);
 
     res.json({
       jobId: localJobId,

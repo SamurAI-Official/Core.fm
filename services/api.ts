@@ -124,6 +124,42 @@ function transformSongs(songs: Song[]): Song[] {
   });
 }
 
+/**
+ * What a retry changed, and why.
+ *
+ * `changes` is the same information as `note`, as fields, so a UI can say it in its own language while
+ * the note keeps the loop's own wording (which is what someone reading the song's params needs).
+ */
+export interface RetryResult {
+  jobId?: string;
+  dryRun?: boolean;
+  promptId: string | null;
+  root: string | null;
+  attempt: number;
+  reasons: string[];
+  excludedSeeds: number[];
+  seed: number;
+  changes: {
+    bpm: number | null;
+    keyScale: string | null;
+    style: string | null;
+    lyricAgent: string | null;
+  };
+  note: string[];
+  unactionable: string[];
+  machineDesigned?: boolean;
+  learnerReachable: boolean;
+}
+
+/** What this listener wants more and less of, as the loop has learned it. */
+export interface TasteProfile {
+  rater: string;
+  verdicts: number;
+  prefers: Array<{ key: string; value: number }>;
+  avoids: Array<{ key: string; value: number }>;
+  updatedAt: string | null;
+}
+
 export const songsApi = {
   getMySongs: async (token: string): Promise<{ songs: Song[] }> => {
     const result = await api('/api/songs', { token }) as { songs: Song[] };
@@ -232,6 +268,33 @@ export const songsApi = {
     token: string,
   ): Promise<{ verdicts: Record<string, { verdict: 'like' | 'dislike'; reasons: string[] }> }> =>
     api('/api/songs/feedback/mine', { token }),
+
+  /**
+   * Another take on the same prompt, for a response that was refused.
+   *
+   * The server decides what to change (it owns the listener's profile and the loop's vocabularies) and
+   * never rewrites a prompt the listener wrote themselves. `note` explains every change in the loop's
+   * own words; `changes` carries the same thing as fields, which is what the UI turns into translated
+   * text.
+   */
+  retry: (
+    id: string,
+    token: string,
+    options: { reasons?: string[]; dryRun?: boolean } = {},
+  ): Promise<RetryResult> =>
+    api(`/api/songs/${id}/retry`, { method: 'POST', body: options, token }),
+
+  /**
+   * What this listener wants more and less of.
+   *
+   * `confident` is the server's own reading of how much is behind it: one click is a hint, not a taste,
+   * and a surface that ignores that would be treating an accident as a preference.
+   */
+  getProfile: (
+    token: string,
+    market?: string,
+  ): Promise<{ ok: boolean; error: string | null; profile: TasteProfile | null; confident: boolean }> =>
+    api(`/api/songs/profile/me${market ? `?market=${market}` : ''}`, { token }),
 
   getLikedSongs: async (token: string): Promise<{ songs: Song[] }> => {
     const result = await api('/api/songs/liked/list', { token }) as { songs: Song[] };

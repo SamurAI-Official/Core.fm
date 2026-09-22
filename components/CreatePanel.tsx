@@ -3,7 +3,7 @@ import { Sparkles, ChevronDown, Settings2, Trash2, Music2, Sliders, Dices, Hash,
 import { GenerationParams, Song } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
-import { generateApi } from '../services/api';
+import { generateApi, type TasteProfile } from '../services/api';
 import { MAIN_STYLES } from '../data/genres';
 import { EditableSlider } from './EditableSlider';
 
@@ -25,6 +25,15 @@ interface CreatePanelProps {
   createdSongs?: Song[];
   pendingAudioSelection?: { target: 'reference' | 'source'; url: string; title?: string } | null;
   onAudioSelectionApplied?: () => void;
+  /**
+   * What this listener wants more and less of, as the loop learned it from their own verdicts.
+   *
+   * A suggestion, never a default: the panel does not touch the style field on its own, because a
+   * prompt someone is about to write is theirs. `tasteConfident` is false until there is more than one
+   * verdict behind the profile, so a single click cannot masquerade as a taste.
+   */
+  tasteProfile?: TasteProfile | null;
+  tasteConfident?: boolean;
 }
 
 const KEY_SIGNATURES = [
@@ -116,6 +125,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   createdSongs = [],
   pendingAudioSelection,
   onAudioSelectionApplied,
+  tasteProfile,
+  tasteConfident = false,
 }) => {
   const { isAuthenticated, token, user } = useAuth();
   const { t } = useI18n();
@@ -1078,6 +1089,38 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     }
   };
 
+  /**
+   * Folds the listener's own taste into the style field: the production tags their verdicts liked go
+   * in, the ones they objected to come out.
+   *
+   * Deliberately a click and not a default. It edits the field exactly the way the quick-tag buttons do,
+   * so the result is visible and undoable by hand, and it never invents a tag - it only reads the keys
+   * the listener's own verdicts moved.
+   */
+  const applyTaste = useCallback(() => {
+    if (!tasteProfile) return;
+    const wanted = tasteProfile.prefers
+      .filter(entry => entry.key.startsWith('tag:'))
+      .map(entry => entry.key.slice(4))
+      .slice(0, 3);
+    const avoided = new Set(
+      tasteProfile.avoids
+        .filter(entry => entry.key.startsWith('tag:'))
+        .map(entry => entry.key.slice(4).toLowerCase()),
+    );
+    setStyle(prev => {
+      const parts = prev
+        .split(',')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .filter(part => !avoided.has(part.toLowerCase()));
+      for (const tag of wanted) {
+        if (!parts.some(part => part.toLowerCase() === tag.toLowerCase())) parts.push(tag);
+      }
+      return parts.join(', ');
+    });
+  }, [tasteProfile]);
+
   const handleGenerate = () => {
     const styleWithGender = (() => {
       if (!vocalGender) return style;
@@ -1772,6 +1815,52 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </button>
                   ))}
                 </div>
+
+                {/*
+                  * What the listener's own verdicts have added up to. One click applies it; nothing is
+                  * applied on its own, because the style field is theirs and a prompt that changes
+                  * itself under someone's hands is worse than no suggestion at all. Hidden until the
+                  * profile has more than one verdict behind it.
+                  */}
+                {tasteProfile && tasteConfident && (() => {
+                  const wanted = tasteProfile.prefers
+                    .filter(entry => entry.key.startsWith('tag:'))
+                    .map(entry => entry.key.slice(4))
+                    .slice(0, 4);
+                  const avoided = tasteProfile.avoids
+                    .filter(entry => entry.key.startsWith('tag:'))
+                    .map(entry => entry.key.slice(4))
+                    .slice(0, 4);
+                  if (wanted.length === 0 && avoided.length === 0) return null;
+                  return (
+                    <div className="rounded-lg border border-zinc-200 dark:border-white/5 bg-zinc-50 dark:bg-white/5 p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          {t('tasteTitle')}
+                        </span>
+                        <button
+                          onClick={applyTaste}
+                          className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-white/90 transition-colors"
+                        >
+                          {t('tasteApply')}
+                        </button>
+                      </div>
+                      {wanted.length > 0 && (
+                        <p className="mt-1.5 text-[10px] text-zinc-600 dark:text-zinc-400">
+                          <span className="font-medium">{t('tasteMore')}</span> {wanted.join(', ')}
+                        </p>
+                      )}
+                      {avoided.length > 0 && (
+                        <p className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                          <span className="font-medium">{t('tasteLess')}</span> {avoided.join(', ')}
+                        </p>
+                      )}
+                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-white/40">
+                        {t('tasteHint')} ({tasteProfile.verdicts})
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
