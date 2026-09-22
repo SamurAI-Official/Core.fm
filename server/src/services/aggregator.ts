@@ -46,11 +46,21 @@ export interface PreferenceOutcome {
   pending: Array<{ key: string; raters: number; needed: number }>;
   /** Set when the verdict retracted an earlier one. */
   withdrawn?: { released: number; reversed: string[] } | null;
+  /** True when the verdict was recorded but not acted on, because this listener is over their cap. */
+  rateLimited: boolean;
+  rateLimit?: { limit: number; used: number; windowHours: number; resetsAt: string | null } | null;
   market: string | null;
 }
 
 export async function reportPreference(report: PreferenceReport): Promise<PreferenceOutcome> {
-  const empty: PreferenceOutcome = { ok: false, applied: [], profile: [], pending: [], market: report.market };
+  const empty: PreferenceOutcome = {
+    ok: false,
+    applied: [],
+    profile: [],
+    pending: [],
+    rateLimited: false,
+    market: report.market,
+  };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
   try {
@@ -66,6 +76,8 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
       profile?: unknown;
       pending?: unknown;
       withdrawn?: unknown;
+      rateLimited?: unknown;
+      rateLimit?: unknown;
     };
     if (!response.ok) {
       return { ...empty, error: payload.error ?? `aggregator responded ${response.status}` };
@@ -86,6 +98,8 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
       applied: Array.isArray(payload.applied) ? payload.applied.map(String) : [],
       profile: Array.isArray(payload.profile) ? payload.profile.map(String) : [],
       pending,
+      rateLimited: payload.rateLimited === true,
+      rateLimit: (payload.rateLimit ?? null) as PreferenceOutcome['rateLimit'],
       withdrawn: withdrawn
         ? {
             released: Number(withdrawn.released ?? 0),

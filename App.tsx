@@ -1214,6 +1214,12 @@ function AppContent() {
       // The verdict moved this listener's profile, so the surfaces that read it are refreshed rather
       // than left showing the taste they had before the click.
       void loadProfile();
+      // A verdict that arrived after the daily cap is recorded but not learned from. Saying so is the
+      // whole point of reporting it: a button that looks like it taught something and did not is worse
+      // than one that admits it is full.
+      if (result.learning?.rateLimited) {
+        showToast(t('verdictRateLimited'), 'info');
+      }
     } catch (error) {
       console.error('Failed to record dislike:', error);
       // Revert the button so the UI never claims a verdict the server does not have.

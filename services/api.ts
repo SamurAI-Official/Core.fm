@@ -254,7 +254,29 @@ export const songsApi = {
     verdict: 'like' | 'dislike' | 'none',
     reasons: string[] = [],
     token?: string,
-  ): Promise<{ verdict: string; liked: boolean; disliked: boolean; likeCount: number }> =>
+  ): Promise<{
+    verdict: string;
+    liked: boolean;
+    disliked: boolean;
+    likeCount: number;
+    market?: string | null;
+    promptId?: string | null;
+    /**
+     * What the loop did with the verdict. Only the fields a surface acts on are declared here: a verdict
+     * that could not be delivered (`ok: false`) still stands locally, and one that arrived after the
+     * listener's daily cap is `rateLimited` - recorded, not yet learned from - which the UI says out
+     * loud rather than leaving the button looking like it did something it did not.
+     */
+    learning?: {
+      ok: boolean;
+      error?: string;
+      applied?: string[];
+      profile?: string[];
+      pending?: Array<{ key: string; raters: number; needed: number }>;
+      rateLimited?: boolean;
+      rateLimit?: { limit: number; used: number; windowHours: number; resetsAt: string | null } | null;
+    } | null;
+  }> =>
     api(`/api/songs/${id}/feedback`, { method: 'POST', body: { verdict, reasons }, token }),
 
   getFeedback: (
