@@ -95,6 +95,20 @@ interface GenerateBody {
   instrumental: boolean;
   vocalLanguage?: string;
 
+  // Attributes the request to a market and to the design that produced it (sent by the signal
+  // aggregator; absent for a plain Create-tab generation). None of these reach the engine - the Gradio
+  // argument list is built from a fixed set of names - but they are stored on the job and on every song
+  // it produces, which is what makes a verdict on a song attributable to what designed it.
+  market?: string;
+  conceptId?: string;
+  runId?: string;
+  primaryGenre?: string;
+  lyricAgent?: string;
+  lyricSubject?: string;
+  lyricLanguage?: string;
+  lyricThemes?: string[];
+  designSeed?: number;
+
   // Music Parameters
   duration?: number;
   bpm?: number;
@@ -265,6 +279,15 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       completeTrackClasses,
       isFormatCaption,
       ditModel,
+      market,
+      conceptId,
+      runId,
+      primaryGenre,
+      lyricAgent,
+      lyricSubject,
+      lyricLanguage,
+      lyricThemes,
+      designSeed,
     } = req.body as GenerateBody;
 
     if (!customMode && !songDescription) {
@@ -333,6 +356,16 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       completeTrackClasses,
       isFormatCaption,
       ditModel,
+      // Attribution (see GenerateBody): stored, never sent to the engine.
+      market,
+      conceptId,
+      runId,
+      primaryGenre,
+      lyricAgent,
+      lyricSubject,
+      lyricLanguage,
+      lyricThemes,
+      designSeed,
     };
 
     // Create job record in database
@@ -435,8 +468,8 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
                 await pool.query(
                   `INSERT INTO songs (id, user_id, title, lyrics, style, caption, audio_url,
                                       duration, bpm, key_scale, time_signature, tags, is_public, generation_params,
-                                      created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+                                      prompt_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))`,
                   [
                     songId,
                     req.user!.id,
@@ -451,6 +484,10 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
                     aceStatus.result.timeSignature || params.timeSignature,
                     JSON.stringify([]),
                     JSON.stringify(params),
+                    // Every variation of one generation shares this id, so a verdict can be attached to
+                    // the prompt as well as to the response: "this response is wrong" is a different
+                    // complaint from "this prompt is wrong", and the two need different answers.
+                    req.params.jobId,
                   ]
                 );
 
@@ -461,8 +498,8 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
                 await pool.query(
                   `INSERT INTO songs (id, user_id, title, lyrics, style, caption, audio_url,
                                       duration, bpm, key_scale, time_signature, tags, is_public, generation_params,
-                                      created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+                                      prompt_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))`,
                   [
                     songId,
                     req.user!.id,
@@ -477,6 +514,7 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
                     aceStatus.result.timeSignature || params.timeSignature,
                     JSON.stringify([]),
                     JSON.stringify(params),
+                    req.params.jobId,
                   ]
                 );
                 localPaths.push(audioUrl);

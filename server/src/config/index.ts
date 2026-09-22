@@ -32,6 +32,16 @@ export const config = {
     apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:8001',
   },
 
+  // Signal aggregator (local). Verdicts on a song are forwarded here so a dislike can reach the
+  // market weights that designed the song. It is optional: if it is down, or the song has no market
+  // attribution (a plain Create-tab generation), the verdict is still recorded locally and simply
+  // does not learn.
+  aggregator: {
+    url: (process.env.AGGREGATOR_URL || process.env.SIGNAL_AGGREGATOR_URL || 'http://localhost:3002').replace(/\/$/, ''),
+    /** How long to wait for the aggregator before giving up on the learning half of a verdict. */
+    timeoutMs: parseInt(process.env.AGGREGATOR_TIMEOUT_MS || '5000', 10),
+  },
+
   // Pexels (optional - for video backgrounds)
   pexels: {
     apiKey: process.env.PEXELS_API_KEY || '',

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../db/pool.js';
 import { authMiddleware, optionalAuthMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getStorageProvider } from '../services/storage/factory.js';
+import { reportPreference } from '../services/aggregator.js';
 
 const router = Router();
 
@@ -524,7 +525,9 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
       ? rawReasons.filter((reason): reason is string => typeof reason === 'string').slice(0, 6)
       : [];
 
-    const song = await client.query('SELECT id FROM songs WHERE id = $1', [req.params.id]);
+    const song = await client.query('SELECT id, generation_params, prompt_id FROM songs WHERE id = $1', [
+      req.params.id,
+    ]);
     if (song.rows.length === 0) {
       res.status(404).json({ error: 'song not found' });
       return;
@@ -573,11 +576,58 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
     await client.query('COMMIT');
 
     const counts = await pool.query('SELECT like_count FROM songs WHERE id = $1', [req.params.id]);
+
+    // Reporting to the aggregator happens after the local verdict is committed, and its failure is
+    // reported rather than raised: the verdict is already the listener's, and a local app must not
+    // refuse a thumbs-down because a second service is not running. What the aggregator did (which may
+    // be nothing yet - a vote is held until enough distinct listeners agree) comes back as `learning`.
+    const params = (() => {
+      const raw = song.rows[0]?.generation_params;
+      if (typeof raw !== 'string' || raw.length === 0) return {} as Record<string, unknown>;
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return {} as Record<string, unknown>;
+      }
+    })();
+    const market = typeof params.market === 'string' && params.market ? params.market : null;
+    const themes = Array.isArray(params.lyricThemes)
+      ? params.lyricThemes.filter((theme): theme is string => typeof theme === 'string')
+      : undefined;
+    const learning = await reportPreference({
+      market: market ?? '',
+      verdict: verdict as 'like' | 'dislike' | 'none',
+      rater: `app:${req.user!.id}`,
+      // The song id identifies the response; `prompt_id` identifies the prompt it answered. Retraction
+      // needs the response, because that is what the verdict is about.
+      sourceId: String(req.params.id),
+      reasons,
+      learn: Boolean(market),
+      features: {
+        genre: typeof params.primaryGenre === 'string' ? params.primaryGenre : undefined,
+        bpm: typeof params.bpm === 'number' ? params.bpm : undefined,
+        keyScale: typeof params.keyScale === 'string' ? params.keyScale : undefined,
+        style: typeof params.style === 'string' ? params.style : undefined,
+        agent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
+        subject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,
+        language:
+          typeof params.lyricLanguage === 'string'
+            ? params.lyricLanguage
+            : typeof params.vocalLanguage === 'string'
+              ? params.vocalLanguage
+              : undefined,
+        themes,
+      },
+    });
+
     res.json({
       verdict,
       liked: verdict === 'like',
       disliked: verdict === 'dislike',
       likeCount: Number(counts.rows[0]?.like_count ?? 0),
+      promptId: song.rows[0]?.prompt_id ?? null,
+      market,
+      learning,
     });
   } catch (error) {
     await client.query('ROLLBACK');
