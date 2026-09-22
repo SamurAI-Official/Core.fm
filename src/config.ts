@@ -115,6 +115,15 @@ export const config = {
     windowDays: num(process.env.FEEDBACK_WINDOW_DAYS, 30),
     /** Off = record votes and report what is pending, but never move a market's weights. */
     promote: bool(process.env.FEEDBACK_PROMOTE, true),
+    /**
+     * How many verdicts one listener may act with per window. `0` means unlimited.
+     *
+     * Agreement is counted in people and magnitude in votes, so one listener judging hundreds of
+     * responses can add unbounded magnitude once others agree - and can drive their own profile to its
+     * floor alone. This bounds both.
+     */
+    maxVerdictsPerDay: num(process.env.FEEDBACK_MAX_VERDICTS_PER_DAY, 100),
+    rateLimitWindowHours: num(process.env.FEEDBACK_RATE_LIMIT_WINDOW_HOURS, 24),
   },
 
   keys: {

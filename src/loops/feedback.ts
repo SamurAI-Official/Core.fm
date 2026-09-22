@@ -11,6 +11,7 @@
  * anything from the song.
  */
 import { pool, jsonParse } from '../db/index.js';
+import { config } from '../config.js';
 import { uuid } from '../lib/util.js';
 import type { FeedbackFeatures, FeedbackVerdict } from '../scoring/feedback.js';
 
@@ -153,6 +154,65 @@ export interface FeedbackSummary {
   promoted: number;
   /** Votes still waiting for enough distinct listeners to agree. */
   pending: number;
+}
+
+/**
+ * How many verdicts one listener may act with in a day.
+ *
+ * The agreement gate stops one person moving a *market*, but agreement is counted in people while
+ * magnitude is counted in votes (17.10), so a flood of judgements from one listener still adds
+ * unbounded magnitude once others agree - and it drives that listener's own profile to the floor on its
+ * own. A hard-no button is also a way to grief, so the ingress is capped.
+ *
+ * Two deliberate details:
+ *
+ *   - the cap counts verdicts *sent*, not verdicts standing: taking one back does not buy another, so a
+ *     flood cannot be laundered through retraction;
+ *   - retractions themselves are never capped. Refusing to let someone withdraw a judgement they made
+ *     would be indefensible, and a withdrawal can only reverse what that listener did.
+ *
+ * A verdict that arrives after the cap is still *recorded* - it is a fact about what someone heard, and
+ * the ledger is where facts live - but it is planned as nothing, so neither the market's votes nor the
+ * listener's own profile move. `limit: 0` means unlimited.
+ */
+export interface RateLimitStatus {
+  /** The cap in force. 0 means unlimited. */
+  limit: number;
+  /** Verdicts this rater has sent in the window that could have acted. */
+  used: number;
+  windowHours: number;
+  allowed: boolean;
+  /** When the window frees up a slot, if it ever does. */
+  resetsAt: string | null;
+}
+
+export function verdictRateLimit(
+  rater: string,
+  options: { limit?: number; windowHours?: number } = {},
+): RateLimitStatus {
+  const limit = options.limit ?? config.feedback.maxVerdictsPerDay;
+  const windowHours = options.windowHours ?? config.feedback.rateLimitWindowHours;
+  const { rows } = pool.query<Record<string, unknown>>(
+    `SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM feedback
+     WHERE rater = ? AND verdict <> 'none' AND created_at >= datetime('now', ?)`,
+    [rater, `-${Math.max(1, Math.round(windowHours))} hours`],
+  );
+  const used = Number(rows[0]?.n ?? 0);
+  const oldest = rows[0]?.oldest ? String(rows[0].oldest) : null;
+  const resetsAt =
+    oldest && limit > 0
+      ? new Date(new Date(`${oldest.replace(' ', 'T')}Z`).getTime() + windowHours * 3600 * 1000)
+          .toISOString()
+          .replace('T', ' ')
+          .slice(0, 19)
+      : null;
+  return {
+    limit,
+    used,
+    windowHours,
+    allowed: limit <= 0 || used < limit,
+    resetsAt,
+  };
 }
 
 /** Marks a verdict as retracted. It stays in the ledger; its votes are dealt with by the promotion layer. */

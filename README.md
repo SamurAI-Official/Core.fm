@@ -641,6 +641,23 @@ deployment can watch the distribution of votes before letting any of them act. A
 `FEEDBACK_MIN_USERS=1` makes one listener's verdict act at once, which is the honest setting for a
 single-user install.
 
+**One listener can only act so many times a day** (`FEEDBACK_MAX_VERDICTS_PER_DAY`, default 100;
+`0` means unlimited). The gate stops one person moving a market, but agreement is counted in people
+while magnitude is counted in votes, so a flood from one listener adds unbounded magnitude once others
+agree - and drives that listener's own profile to its floor unaided. So:
+
+- a verdict that arrives after the cap is **still recorded** (it is a fact about what someone heard, and
+  the ledger is where facts live) but is *planned as nothing*: no market votes, no profile movement, and
+  the response says `rateLimited: true` with the counts and when the window frees up;
+- the cap counts verdicts **sent**, not verdicts standing, so a flood cannot be laundered by taking
+  verdicts back;
+- **retractions are never capped** - refusing to let someone withdraw a judgement would be indefensible,
+  and a withdrawal can only reverse what that listener did;
+- the cap is per listener, so one flooded rater leaves everyone else alone.
+
+The app surfaces it rather than letting a verdict go quiet: a capped verdict shows as *saved, but not
+learned from yet* instead of looking like it taught something.
+
 Where the votes come from: a song rendered through the aggregator carries its market and its design
 provenance (`market`, `conceptId`, `runId`, `primaryGenre`, `lyricAgent`, `lyricSubject`,
 `lyricThemes`) into the app's job params, so a verdict on the *audio* can be attributed back to the
@@ -763,8 +780,8 @@ pass itself answers with what moved, what was retired, the largest shift, and up
   the button shaping a market — is worse. See "Preference" above.
 - **Agreement is counted in people; magnitude is counted in votes.** Three listeners who each
   dislike one response move a key by three steps; one of them disliking three responses adds
-  magnitude to the group without adding agreement. The bounds (0.25–3.0) and the planned decay are
-  what keep that from compounding without limit.
+  magnitude to the group without adding agreement. The bounds (0.25–3.0), the daily cap on how much
+  one listener can act with, and the decay are what keep that from compounding without limit.
 - **A promoted step is only *roughly* reversible.** Retracting a verdict applies the opposite delta,
   and because weights are clamped, a reversal of a step that was itself clamped cannot land on the
   exact earlier value. The response reports the value it actually reached.
@@ -805,6 +822,8 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `FEEDBACK_MIN_USERS` | `3` | Distinct listeners who must agree on a weight key before it moves. `1` acts on a single verdict (a single-user install) |
 | `FEEDBACK_WINDOW_DAYS` | `30` | How long a vote counts toward a promotion |
 | `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
+| `FEEDBACK_MAX_VERDICTS_PER_DAY` | `100` | Verdicts one listener may *act* with per window; `0` = unlimited. The rest are recorded, not acted on |
+| `FEEDBACK_RATE_LIMIT_WINDOW_HOURS` | `24` | The window that cap is measured over |
 
 ## HTTP API
 
