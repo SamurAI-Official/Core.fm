@@ -39,6 +39,8 @@ import {
   markWithdrawn,
 } from '../loops/feedback.js';
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
+import { applyUserSteps, userProfile } from '../loops/userProfile.js';
+import { nextTake } from '../design/nextTake.js';
 import { planFeedback } from '../scoring/feedback.js';
 import { runCycle } from '../loops/cycle.js';
 import { executeConcept } from '../pipeline/run.js';
@@ -306,10 +308,11 @@ export function createApp(): express.Express {
         sourceId: sourceKey,
       });
 
-      // `learn: false` records a preference without letting it act, so no votes are written at all - a
-      // vote is the promise to act on agreement, and the caller declined exactly that.
+      // Planned whenever the caller has not opted out. Note the scope split: a *market* needs a market
+      // (below), but the caller's own profile does not - which is what lets a hard no on a Create-tab
+      // song teach *their* taste even though there is no market for it to reach.
       const plan =
-        learn === false || !marketCode
+        learn === false
           ? { steps: [], notes: [] }
           : planFeedback({
               market: marketCode,
@@ -328,6 +331,12 @@ export function createApp(): express.Express {
               steps: plan.steps,
             })
           : 0;
+
+      // Layer U: the listener's own profile moves at once, with no threshold and no window. The gate
+      // below decides what a *market* hears; this decides what this person hears next, and there is
+      // nothing to wait for - it is their own hard no. `learn: false` still means "record only".
+      const profileApplied =
+        raterId && learn !== false ? applyUserSteps(raterId, plan.steps) : [];
 
       // Only this market is reconsidered, and only after a vote exists: a promotion is a consequence of
       // what is in the ledger, never of the request alone.
@@ -358,6 +367,8 @@ export function createApp(): express.Express {
           .map((event) => `${event.key} -> ${round(event.after ?? event.before, 3)}`),
         /** Keys still short of agreement, with how many listeners are with the caller so far. */
         pending,
+        /** What moved in the *caller's own* profile, immediately, on the strength of their verdict. */
+        profile: profileApplied,
         notes: marketCode ? weightNotes(marketCode) : [],
         learner: {
           minUsers: Math.max(1, config.feedback.minUsers),
@@ -366,6 +377,71 @@ export function createApp(): express.Express {
         },
         planNotes: plan.notes,
       });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /**
+   * A listener's own profile: what this person wants more and less of.
+   *
+   * Deliberately separate from the market's weights, and reported with the number of verdicts behind
+   * it, because a profile built from one click should not be treated like one built from fifty. The
+   * caller decides what to do with that - the app uses it for defaults and for the retry decision,
+   * and only once there is enough of it to mean something.
+   */
+  app.get('/api/users/:rater/profile', (req: Request, res: Response) => {
+    try {
+      const rater = decodeURIComponent(req.params.rater);
+      const profile = userProfile(rater);
+      const market = req.query.market ? String(req.query.market).toLowerCase() : undefined;
+      res.json({
+        ...profile,
+        /** The market's own weights for the same keys, when asked for, so a caller can compare the two. */
+        market: market ? getWeights(market) : null,
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /**
+   * The next take: what to change when a listener rejects a response to their own prompt.
+   *
+   * The app owns the prompt and the render; this owns the vocabularies (genres, tags, writing styles)
+   * and the listener's profile, so the decision is made where those live rather than re-implemented
+   * from a copy. The route only validates and forwards - `nextTake` holds the rules.
+   */
+  app.post('/api/next-take', (req: Request, res: Response) => {
+    try {
+      const { rater, reasons, previous, excludeSeeds, attempt } = req.body as {
+        rater?: unknown;
+        reasons?: unknown;
+        previous?: unknown;
+        excludeSeeds?: unknown;
+        attempt?: unknown;
+      };
+      if (typeof rater !== 'string' || !rater) {
+        res.status(400).json({ error: 'rater (string) is required' });
+        return;
+      }
+      if (!previous || typeof previous !== 'object') {
+        res.status(400).json({ error: 'previous (the params of the take being retried) is required' });
+        return;
+      }
+      res.json(
+        nextTake({
+          rater,
+          reasons: Array.isArray(reasons)
+            ? reasons.filter((reason): reason is string => typeof reason === 'string')
+            : [],
+          previous: previous as Parameters<typeof nextTake>[0]['previous'],
+          excludeSeeds: Array.isArray(excludeSeeds)
+            ? excludeSeeds.map((seed) => Number(seed)).filter((seed) => Number.isFinite(seed))
+            : [],
+          attempt: typeof attempt === 'number' ? attempt : undefined,
+        }),
+      );
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }

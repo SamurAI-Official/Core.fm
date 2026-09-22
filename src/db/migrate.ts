@@ -183,6 +183,19 @@ CREATE TABLE IF NOT EXISTS feedback_votes (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- A listener's own profile, keyed by an opaque rater id. Same key grammar as market_weights so the
+-- two can be compared (and blended) directly, but written immediately on every verdict: the market
+-- has to wait for agreement, the individual does not. Theme, tag and the lyric-side keys all live
+-- here too, so a hard no on "the words" is remembered as a preference about subjects and writing
+-- styles rather than as a complaint nobody can act on.
+CREATE TABLE IF NOT EXISTS user_weights (
+  rater TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value REAL NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (rater, key)
+);
+
 -- Adaptive per-market weights updated after every scored cycle
 -- (things that scored well get sampled more often next cycle).
 CREATE TABLE IF NOT EXISTS market_weights (
