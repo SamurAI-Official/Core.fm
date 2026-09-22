@@ -14,6 +14,7 @@ import { designConcepts } from '../design/designer.js';
 import type { Concept } from '../design/types.js';
 import { executeConcepts, type ExecuteOptions, type ExecuteResult } from '../pipeline/run.js';
 import { getWeightsForMarkets } from '../loops/ratings.js';
+import { decayWeights } from '../loops/decay.js';
 import { pipeline } from '../pipeline/client.js';
 
 export interface CycleOptions {
@@ -85,6 +86,21 @@ export async function runCycle(options: CycleOptions = {}): Promise<CycleReport>
   const cycleId = uuid();
   const startedAt = nowIso();
   const notes: string[] = [];
+
+  // Before anything is decided, let go of what nobody has confirmed for a while. A cycle that ran after
+  // a long pause used to design from the weights as they were when the service stopped; now an opinion
+  // that has not been repeated fades first, which is the whole point of decay being time-based.
+  const decay = decayWeights();
+  const decayed = decay.scopes.reduce((total, scope) => total + scope.moved, 0);
+  if (decayed > 0) {
+    const dropped = decay.scopes.reduce((total, scope) => total + scope.purged, 0);
+    notes.push(
+      `decayed ${decayed} stale weight${decayed === 1 ? '' : 's'}` +
+        (dropped > 0 ? ` (${dropped} back to neutral)` : '') +
+        ` at ${(decay.ratePerWeek * 100).toFixed(2)}%/week`,
+    );
+    log(notes[notes.length - 1]);
+  }
 
   pool.query('INSERT INTO cycles (id, markets) VALUES (?, ?)', [cycleId, JSON.stringify(markets)]);
 

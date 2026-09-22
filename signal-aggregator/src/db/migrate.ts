@@ -269,6 +269,10 @@ ensureColumn('ratings', 'verdict', 'TEXT');
 ensureColumn('feedback', 'rater', 'TEXT');
 ensureColumn('feedback', 'source_id', 'TEXT');
 ensureColumn('feedback', 'withdrawn', 'INTEGER NOT NULL DEFAULT 0');
+// Decay's own clock. Kept apart from updated_at so "when was this weight last learned" stays a
+// readable fact rather than being rewritten by every decay pass.
+ensureColumn('market_weights', 'decayed_at', 'TEXT');
+ensureColumn('user_weights', 'decayed_at', 'TEXT');
   backfillTrackKeys();
   exec(`
     CREATE INDEX IF NOT EXISTS idx_signals_track_series ON signals (market, track_key, captured_at);

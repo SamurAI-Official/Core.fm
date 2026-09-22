@@ -521,6 +521,8 @@ npm run cycle -- --generate 2        # collect → brief → design → render �
 | `npm run forecast` | Forward view: rising tracks, genre drift, tempo projection, with sample-depth caveats |
 | `npm run schedule` | Long-running periodic collection (+ briefs); keeps history accumulating |
 | `npm run rate -- --run <id> --score 0.8` | Record a human rating; re-scores the run and updates weights |
+| `npm run feedback` | The preference ledger: what listeners said, and what they blamed |
+| `npm run decay` | Let go of unconfirmed weights (`-- --dry-run` to be told what it would do) |
 | `npm run serve` | Dashboard + HTTP API (`--schedule` also starts the collector) |
 | `npm run typecheck` | TypeScript check |
 
@@ -592,6 +594,8 @@ and the verdict is `unrated` — never presented as market evidence.
   cycle prefers before you run it.
 - `bump = learningRate * (rating - 0.5)`: above-average songs get their genre,
   tags, tempo band and key reinforced; below-average ones get damped.
+- Weights also **decay** toward neutral when nobody confirms them for a while, so a
+  handful of early opinions cannot shape a market for ever. See "Decay" below.
 
 ## Preference: likes, hard nos, and the agreement gate
 
@@ -685,6 +689,46 @@ number of verdicts behind it. That count is the confidence, and it is reported r
 the app's Create tab shows its suggestion row only once there is more than one verdict, and applies it
 only when the listener clicks.
 
+## Decay: an opinion goes stale
+
+Learning only accumulates in one direction. Without something that walks it back, four hard nos drive
+a key to its 0.25 floor and it stays there for ever - and now the same is true of a listener's own
+profile, which one person can pin to the floor in four clicks. A weight is a summary of what *recent*
+listeners wanted, not a permanent verdict on a genre.
+
+So an untouched weight walks back toward neutral at `WEIGHT_DECAY_PER_WEEK`, default **2%/week**:
+after a week, `(1 - rate)` of the distance from 1 is left.
+
+| value | after 2 weeks | after 10 weeks | after 60 weeks |
+|---|---|---|---|
+| 0.25 (driven to the floor) | 0.280 | 0.387 | 0.777 |
+| 3.00 (strongly favoured) | 2.921 | 2.634 | 1.595 |
+
+A key that keeps being confirmed never moves: the clock only runs on weights nobody has touched.
+
+- **Both scopes.** Market weights *and* listeners' own profiles. The failure this prevents applies
+  equally to a market and to one person, and there is no reading of "an opinion goes stale" under which
+  the individual's own profile should be the permanent one.
+- **Two clocks.** `updated_at` is when a weight was last *learned*; `decayed_at` is when a pass last
+  touched it. Decay runs from whichever is later, and a pass never rewrites `updated_at` - so "when did
+  this change, and why" stays readable. A weight that is not worth a write keeps its clock running
+  rather than being nudged by a rounding error.
+- **Where it runs.** At startup (a service that was off for a month must not come back holding last
+  month's opinions), on every scheduled pass, and at the head of a cycle - the last of those so a cycle
+  designs from weights that reflect how long it has been since anything was confirmed. It is also
+  `npm run decay` (`--dry-run` supported) and `POST /api/decay` with `{ "dryRun": true }`.
+- **It composes.** Decay is a function of *time since the value last changed*, not of how often the pass
+  runs, so a pass every six hours and a pass once a month leave the same weights.
+- **Neutral is retired, not kept.** A weight that decays into the tolerance band (0.005) is deleted
+  rather than kept as a `1.0` placeholder, so the tables stay a summary of current taste instead of an
+  archive of everything ever judged. A preference that was *already* within the tolerance when it was
+  written is kept and reported as untouched - deleting it on arrival would lose it and claim a
+  "dropped back to neutral" that never happened. The history is in the ledger
+  (`feedback`, `feedback_votes`), which nothing here touches.
+
+Every pass can be observed: `GET /api/decay` reports when it last ran and the rule in force, and the
+pass itself answers with what moved, what was retired, the largest shift, and up to five example keys.
+
 ## Honest limitations
 
 - **Tempo is mostly inferred, not measured.** Deezer's public API now returns
@@ -735,6 +779,12 @@ only when the listener clicks.
 - **Only the listener's own verdicts move their profile.** The profile is not a market's opinion of
   them, and other listeners' votes never reach it - which is why a single-user install still gets a
   useful Layer U while its Layer M stays deliberately still.
+- **Decay is time-based, so it needs a clock you trust.** A machine whose system time jumps forward will
+  age every weight at once (the pass caps the span at ten years to bound the damage, and reports the
+  span it saw). Nothing else in the loop depends on wall-clock time this way.
+- **A retired weight is not a forgotten one.** When a weight decays into the tolerance band the row is
+  deleted, so the *weights* no longer show it - but its verdicts stay in the ledger for ever. Re-reading
+  the history always works; re-deriving the weight needs a re-judgement, which is the intended cost.
 - Chart artists appear as market *context* only. Designs are generated from genre,
   tempo and structure evidence, with original titles — no artist's song is imitated.
 
@@ -751,6 +801,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `WEIGHT_MARKET_FIT` / `_NOVELTY` / `_HUMAN` | `0.5` / `0.2` / `0.3` | Composite weights |
 | `CHAMPION_THRESHOLD` / `VIABLE_THRESHOLD` | `0.70` / `0.55` | Verdict cutoffs |
 | `LEARNING_RATE` | `0.25` | How hard a rating moves weights |
+| `WEIGHT_DECAY_PER_WEEK` | `0.02` | How fast an untouched weight walks back toward neutral, per week |
 | `FEEDBACK_MIN_USERS` | `3` | Distinct listeners who must agree on a weight key before it moves. `1` acts on a single verdict (a single-user install) |
 | `FEEDBACK_WINDOW_DAYS` | `30` | How long a vote counts toward a promotion |
 | `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
@@ -775,6 +826,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `GET /api/feedback` | The ledger: summary (likes, dislikes, reasons, raters, promoted vs pending), recent verdicts with who gave them, and every group still short of agreement |
 | `GET /api/users/:rater/profile` | A listener's own profile: what they want more and less of, and how many verdicts it is built from |
 | `POST /api/next-take` | `{ rater, reasons, previous, excludeSeeds, attempt? }` → what to change for another take of the same prompt, with a note explaining each change |
+| `POST /api/decay` · `GET /api/decay` | Run a decay pass (or `{ "dryRun": true }` to be told what it would do); get the rule in force and when it last ran |
 
 
 ## Files
@@ -794,9 +846,10 @@ src/
   schedule/   scheduler.ts                         periodic collection (history for forecasting)
   pipeline/   client.ts submit.ts run.ts            ACE-Step integration (submit carries attribution)
   scoring/    fit.ts score.ts feedback.ts            scoring, learning, what a verdict blames
-  loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts userProfile.ts
-              the loop, the preference ledger, the agreement gate over its votes, and each
-              listener's own profile (which acts at once, unlike the gate)
+  loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts userProfile.ts decay.ts
+              the loop, the preference ledger, the agreement gate over its votes, each listener's
+              own profile (which acts at once, unlike the gate), and the decay that lets go of what
+              nobody has confirmed
   report/     overview.ts detail.ts forecast.ts format.ts   reporting
   api/        server.ts dashboard.ts
   db/         index.ts migrate.ts    cli/args.ts     index.ts (CLI)

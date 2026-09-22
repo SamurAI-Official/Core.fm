@@ -39,6 +39,7 @@ import {
   markWithdrawn,
 } from '../loops/feedback.js';
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
+import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
 import { applyUserSteps, userProfile } from '../loops/userProfile.js';
 import { nextTake } from '../design/nextTake.js';
 import { planFeedback } from '../scoring/feedback.js';
@@ -54,6 +55,14 @@ import { dashboardHtml } from './dashboard.js';
 
 export function createApp(): express.Express {
   runMigrations();
+
+  // Weights are a summary of what recent listeners wanted, so a service that has been switched off for
+  // a month must not come back holding the opinions it had then. One pass at startup costs a few
+  // hundred comparisons and makes every weight in the dashboard current.
+  const startupDecay = decayWeights();
+  if (startupDecay.scopes.some((scope) => scope.moved > 0)) {
+    for (const line of describeDecay(startupDecay)) console.log(`[decay] ${line}`);
+  }
 
   const app = express();
   app.use(express.json({ limit: '2mb' }));
@@ -445,6 +454,28 @@ export function createApp(): express.Express {
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
+  });
+
+  /**
+   * Decay: run a pass now, or ask what it would do.
+   *
+   * Exposed because decay is otherwise invisible housekeeping - it runs at startup, on every scheduled
+   * pass, and at the head of a cycle - and "the weights went back to neutral and I do not know why" is a
+   * question that deserves an answer rather than an explanation of the maths.
+   */
+  app.post('/api/decay', (req: Request, res: Response) => {
+    try {
+      const dryRun = (req.body as { dryRun?: unknown })?.dryRun === true;
+      const report = decayWeights({ dryRun });
+      res.json({ ...report, notes: describeDecay(report), status: decayStatus() });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /** When the weights were last decayed, and how strong the rule is. */
+  app.get('/api/decay', (_req: Request, res: Response) => {
+    res.json(decayStatus());
   });
 
   /**
