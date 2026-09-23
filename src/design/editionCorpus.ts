@@ -33,8 +33,12 @@ import type { FeedbackFeatures, FeedbackVerdict } from '../scoring/feedback.js';
 
 /** One judged response, as the corpus sees it. */
 export interface CorpusSample {
-  /** The response: the app's song id, which is how the audio is found. */
+  /** The response: the app's song id, or `run:<run id>` for one of the loop's own renders. */
   id: string;
+  /** Where the response lives, so an executor can find the audio. Null when the render is gone. */
+  audio: string | null;
+  /** Which half of the system produced it: a listener's own song, or a designed render of this loop. */
+  origin: 'song' | 'run';
   /** The prompt it answered, used for the split. Falls back to the response id when unknown. */
   promptKey: string;
   market: string | null;
@@ -75,6 +79,15 @@ export interface CorpusManifest {
     train: number;
     heldOutPairs: number;
     anchors: number;
+    /**
+     * Where the judged material came from: a listener's own songs, or the loop's own rated renders. An
+     * edition trained only on the first is being tuned on the app's output; only on the second, on the
+     * loop's. The mix should be visible rather than assumed.
+     */
+    songs: number;
+    runs: number;
+    /** Judged samples whose audio the executor can actually reach - the ones it could train on. */
+    withAudio: number;
     /** Samples dropped by the negatives cap - dropped, not hidden, so the mix can be audited. */
     negativesDropped: number;
     /** Verdicts held back because they are evaluation evidence rather than training material. */
@@ -107,7 +120,7 @@ export interface EditionCorpus {
   all: CorpusSample[];
 }
 
-function judgedSamples(): CorpusSample[] {
+function judgedSamples(): { samples: CorpusSample[]; judgedConceptIds: Set<string> } {
   // Evaluation verdicts are excluded: they come from listening to the held-out prompts, and training on
   // them would make the next gate measure memorisation of its own test set.
   const { rows } = pool.query<Record<string, unknown>>(
@@ -116,8 +129,11 @@ function judgedSamples(): CorpusSample[] {
      WHERE source_id IS NOT NULL AND withdrawn = 0 AND role <> 'evaluation'
      ORDER BY created_at ASC, id ASC`,
   );
-  return rows.map((row) => ({
+  const fromFeedback: CorpusSample[] = rows.map((row) => ({
     id: String(row.source_id),
+    // A verdict is on a song the listener heard through the app; the audio is the app's own.
+    audio: null,
+    origin: 'song' as const,
     promptKey: row.prompt_id ? String(row.prompt_id) : String(row.source_id),
     market: row.market ? String(row.market) : null,
     verdict: String(row.verdict) as FeedbackVerdict,
@@ -126,6 +142,91 @@ function judgedSamples(): CorpusSample[] {
     createdAt: String(row.created_at),
     features: jsonParse<FeedbackFeatures>(row.features, {}),
   }));
+
+  const { samples: fromRuns, judgedConceptIds } = runRatingSamples();
+  return { samples: [...fromFeedback, ...fromRuns], judgedConceptIds };
+}
+
+/**
+ * Judged renders of this loop's own designs, read from the run ratings.
+ *
+ * The ledger covers what a listener said about a *song they were given*. The loop also renders its own
+ * designs, rates them, and keeps the audio - and those ratings are judgements of the same kind ("more of
+ * this" / "less of this"), recorded in a different table for historical reasons. Leaving them out made a
+ * batch of forty-odd renders with five ratings look like an empty corpus, which is the same blind spot that
+ * hid the app's likes (17.17).
+ *
+ * Three rules, so that a rating means what the ledger's verdicts mean:
+ *
+ *   - **an explicit verdict wins.** A rating carrying `like`/`dislike` is that, regardless of score.
+ *   - **otherwise the thresholds are the loop's own**: at or above the champion bar is a positive, below
+ *     the viable bar is a negative, and the band between them is *ambiguous* - skipped rather than guessed
+ *     at, because inventing a preference from a middling score is exactly the kind of inference this
+ *     system refuses elsewhere.
+ *   - **only the latest rating of a run counts.** Re-rating is a change of mind, and the run's audio did
+ *     not change between the two.
+ *
+ * The prompt key is the concept, so the held-out split holds out *whole designs* - the renders of one
+ * concept share their words, style and market, and splitting them across the two halves would leak the
+ * design into training.
+ */
+function runRatingSamples(): { samples: CorpusSample[]; judgedConceptIds: Set<string> } {
+  const { rows } = pool.query<Record<string, unknown>>(
+    `SELECT r.id AS rating_id, r.run_id, r.score, r.verdict AS explicit, r.created_at,
+            run.concept_id, run.market, run.local_audio,
+            c.primary_genre, c.bpm, c.key_scale, c.style, c.vocal_language, c.params
+     FROM ratings r
+     JOIN runs run ON run.id = r.run_id
+     LEFT JOIN concepts c ON c.id = run.concept_id
+     WHERE r.score IS NOT NULL
+     ORDER BY r.created_at ASC, r.id ASC`,
+  );
+
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const row of rows) latest.set(String(row.run_id), row);
+
+  const samples: CorpusSample[] = [];
+  const judgedConceptIds = new Set<string>();
+  for (const row of latest.values()) {
+    const score = Number(row.score);
+    const explicit = row.explicit === 'like' || row.explicit === 'dislike' ? row.explicit : null;
+    const verdict: FeedbackVerdict | null =
+      explicit ??
+      (score >= config.scoring.championThreshold
+        ? 'like'
+        : score < config.scoring.viableThreshold
+          ? 'dislike'
+          : null);
+    if (!verdict) continue;
+    const conceptId = row.concept_id ? String(row.concept_id) : null;
+    if (conceptId) judgedConceptIds.add(conceptId);
+    const params = row.params ? jsonParse<Record<string, unknown>>(row.params, {}) : {};
+    const audio = jsonParse<string[]>(row.local_audio, [])[0] ?? null;
+    samples.push({
+      id: `run:${String(row.run_id)}`,
+      audio,
+      origin: 'run',
+      // Whole designs are held out, not single renders.
+      promptKey: conceptId ? `concept:${conceptId}` : `run:${String(row.run_id)}`,
+      market: row.market ? String(row.market) : null,
+      verdict,
+      reasons: [],
+      // The loop did not record which edition rendered these; they predate that provenance.
+      edition: null,
+      createdAt: String(row.created_at),
+      features: {
+        genre: row.primary_genre ? String(row.primary_genre) : undefined,
+        bpm: row.bpm === null || row.bpm === undefined ? undefined : Number(row.bpm),
+        keyScale: row.key_scale ? String(row.key_scale) : undefined,
+        style: row.style ? String(row.style) : undefined,
+        agent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
+        subject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,
+        language: row.vocal_language ? String(row.vocal_language) : undefined,
+        themes: Array.isArray(params.lyricThemes) ? (params.lyricThemes as string[]) : undefined,
+      },
+    });
+  }
+  return { samples, judgedConceptIds };
 }
 
 /**
@@ -219,8 +320,11 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
     minHeldOutPairs: options.minHeldOutPairs ?? config.edition.minHeldOutPairs,
   };
 
-  const all = judgedSamples();
-  const judgedIds = new Set(all.map((sample) => sample.id));
+  const judged = judgedSamples();
+  const all = judged.samples;
+  // Both the judged response ids and the *concepts* a rated render belongs to: an anchor is a design, so a
+  // design whose render has been judged must not also appear as one, or its material is counted twice.
+  const judgedIds = new Set<string>([...all.map((sample) => sample.id), ...judged.judgedConceptIds]);
   const evaluationExcluded = Number(
     pool.query<Record<string, unknown>>(
       "SELECT COUNT(*) AS n FROM feedback WHERE source_id IS NOT NULL AND role = 'evaluation'",
@@ -240,9 +344,18 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
     if (promptBucket(promptKey) < guards.heldOutShare) {
       const liked = samples.filter((s) => s.verdict === 'like');
       const disliked = samples.filter((s) => s.verdict === 'dislike');
-      // A pair needs both sides to say anything about preference; a prompt judged only one way is
-      // training material, not held-out evidence.
-      if (liked.length > 0 && disliked.length > 0) {
+      /**
+       * A held-out prompt needs a **liked reference**, not a dislike.
+       *
+       * The judge - a person listening or a measurement comparing - renders the prompt under both editions
+       * and asks which render is closer to what the listener liked *here*. That reference is what it needs;
+       * a pre-existing dislike adds nothing it can use. Requiring both sides was a leftover from the older
+       * formulation, and it made a real batch unusable: eleven likes across eleven prompts and two dislikes
+       * elsewhere produce exactly zero pairs, so a corpus with plenty of material looked empty.
+       *
+       * Held out is still whole-prompt, so the prompt a candidate is judged on is one it never trained on.
+       */
+      if (liked.length > 0) {
         heldOutPairs.push({ promptKey, market: samples[0]?.market ?? null, liked, disliked });
       } else {
         train.push(...samples);
@@ -278,6 +391,9 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
     train: keptTrain.length,
     heldOutPairs: heldOutPairs.length,
     anchors: anchors.length,
+    songs: all.filter((sample) => sample.origin === 'song').length,
+    runs: all.filter((sample) => sample.origin === 'run').length,
+    withAudio: all.filter((sample) => Boolean(sample.audio)).length,
     negativesDropped,
     evaluationExcluded,
   };
@@ -307,8 +423,10 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
   }
   if (heldOutPairs.length < guards.minHeldOutPairs) {
     blockers.push(
-      `only ${heldOutPairs.length} held-out prompt(s) with both a like and a dislike; ` +
-        `${guards.minHeldOutPairs} are needed to tell two editions apart`,
+      `only ${heldOutPairs.length} held-out prompt(s) with a liked reference; ` +
+        `${guards.minHeldOutPairs} are needed to tell two editions apart, and each one needs a prompt ` +
+        'with at least one liked response (a dislike on the same prompt is optional - the judge renders ' +
+        'both editions and asks which is closer to the liked render)',
     );
   }
 
@@ -377,6 +495,10 @@ export function describeCorpus(corpus: EditionCorpus): string[] {
       `by the ${guards.maxNegativesPerPositive}:1 cap`,
   );
   lines.push(`  ${counts.anchors} anchor(s) from unjudged designs`);
+  lines.push(
+    `  judged material: ${counts.songs} listener song(s), ${counts.runs} rated render(s) of this loop; ` +
+      `${counts.withAudio} with audio the executor can reach`,
+  );
   const editions = Object.entries(corpus.manifest.byEdition)
     .map(([edition, n]) => `${edition}:${n}`)
     .join(' ');

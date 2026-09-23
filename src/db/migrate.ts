@@ -314,6 +314,11 @@ ensureColumn('feedback', 'prompt_id', 'TEXT');
 // trained on the held-out set and the gate would be measuring memorisation - so the role is recorded per
 // verdict and the corpus ignores everything marked 'evaluation'.
 ensureColumn('feedback', 'role', "TEXT NOT NULL DEFAULT 'training'");
+// The steps a verdict decided on, so withdrawing it can reverse the *listener's own* profile as well as
+// the market's weights. Market votes live in feedback_votes; the profile has no equivalent, so without
+// this a retraction would undo the market's share of a verdict and leave the person's share standing -
+// which is the half they notice, because it changes what they are offered next.
+ensureColumn('feedback', 'plan', 'TEXT');
   backfillTrackKeys();
   exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_editions_one_adopted ON editions (status) WHERE status = 'adopted';

@@ -13,7 +13,7 @@
 import { pool, jsonParse } from '../db/index.js';
 import { config } from '../config.js';
 import { uuid } from '../lib/util.js';
-import type { FeedbackFeatures, FeedbackVerdict } from '../scoring/feedback.js';
+import type { FeedbackFeatures, FeedbackVerdict, WeightStep } from '../scoring/feedback.js';
 
 export interface FeedbackRecord {
   id: string;
@@ -29,6 +29,12 @@ export interface FeedbackRecord {
   sourceId: string | null;
   /** True once the row has been retracted; it stays in the ledger but stops counting. */
   withdrawn: boolean;
+  /**
+   * What this verdict decided, as weight steps. Stored because a retraction has to undo the listener's own
+   * profile too, and the profile stores values rather than decisions - the plan is the only record of what
+   * this row moved.
+   */
+  plan: WeightStep[];
   createdAt: string;
 }
 
@@ -51,12 +57,14 @@ export function insertFeedback(input: {
    * would make the next gate measure memorisation of its own test set.
    */
   role?: 'training' | 'evaluation';
+  /** What this verdict decides, stored so a retraction can reverse the listener's own profile too. */
+  plan?: WeightStep[];
 }): string {
   const id = uuid();
   pool.query(
     `INSERT INTO feedback
-       (id, market, verdict, score, reasons, features, source, rater, source_id, edition, prompt_id, role)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, market, verdict, score, reasons, features, source, rater, source_id, edition, prompt_id, role, plan)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.market ?? null,
@@ -70,6 +78,7 @@ export function insertFeedback(input: {
       input.edition ?? null,
       input.promptId ?? null,
       input.role ?? 'training',
+      JSON.stringify(input.plan ?? []),
     ],
   );
   return id;
@@ -147,6 +156,7 @@ export function listFeedback(options: { market?: string; verdict?: FeedbackVerdi
     rater: row.rater ? String(row.rater) : null,
     sourceId: row.source_id ? String(row.source_id) : null,
     withdrawn: Number(row.withdrawn ?? 0) === 1,
+    plan: jsonParse<WeightStep[]>(row.plan, []),
     createdAt: String(row.created_at),
   }));
 }
@@ -259,6 +269,40 @@ export function findFeedbackBySource(options: {
     rater: row.rater ? String(row.rater) : null,
     sourceId: row.source_id ? String(row.source_id) : null,
     withdrawn: Number(row.withdrawn ?? 0) === 1,
+    plan: jsonParse<WeightStep[]>(row.plan, []),
+    createdAt: String(row.created_at),
+  };
+}
+
+/**
+ * The most recent non-withdrawn verdict this person gave on this response, irrespective of market.
+ *
+ * `findFeedbackBySource` answers the same question *within a market*, which is what a market-scoped
+ * retraction wants. This one is for the two callers that have no market to scope by: a verdict on a song
+ * nobody designed a market for still has to be replaceable and retractable, and an agent that retries a
+ * report needs the same guarantee. Never returns 'none' rows, since 'none' is how a verdict is taken back.
+ */
+export function findRaterVerdict(options: { rater: string; sourceId: string }): FeedbackRecord | null {
+  const { rows } = pool.query<Record<string, unknown>>(
+    `SELECT * FROM feedback
+     WHERE rater = ? AND source_id = ? AND withdrawn = 0 AND verdict <> 'none'
+     ORDER BY created_at DESC LIMIT 1`,
+    [options.rater, options.sourceId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    market: row.market ? String(row.market) : null,
+    verdict: String(row.verdict) as FeedbackVerdict,
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
+    reasons: jsonParse<string[]>(row.reasons, []),
+    features: jsonParse<FeedbackFeatures>(row.features, {}),
+    source: row.source ? String(row.source) : null,
+    rater: row.rater ? String(row.rater) : null,
+    sourceId: row.source_id ? String(row.source_id) : null,
+    withdrawn: Number(row.withdrawn ?? 0) === 1,
+    plan: jsonParse<WeightStep[]>(row.plan, []),
     createdAt: String(row.created_at),
   };
 }
