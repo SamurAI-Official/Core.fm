@@ -613,6 +613,11 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
       // `learn` is left to the aggregator: a verdict always teaches the *listener's own* profile (there
       // is nothing to wait for - it is their taste), while reaching a market's weights needs a market
       // and agreement. A Create-tab song has no market, so its verdict simply stops at the profile.
+      //
+      // `edition` and `promptId` are the soft-tuning loop's provenance: a verdict is trainable evidence
+      // for the edition that produced the response, and a held-out set has to be split by prompt.
+      edition: typeof params.edition === 'number' || typeof params.edition === 'string' ? String(params.edition) : undefined,
+      promptId: song.rows[0]?.prompt_id ? String(song.rows[0].prompt_id) : undefined,
       features: {
         genre: typeof params.primaryGenre === 'string' ? params.primaryGenre : undefined,
         bpm: typeof params.bpm === 'number' ? params.bpm : undefined,

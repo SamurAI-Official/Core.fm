@@ -32,6 +32,10 @@ export interface PreferenceReport {
   };
   /** `false` records the verdict without letting it move anything. */
   learn?: boolean;
+  /** The model edition that produced the response (0/absent = the base model). */
+  edition?: string;
+  /** The prompt the response answered, so the corpus can hold out whole prompts. */
+  promptId?: string;
 }
 
 export interface PreferenceOutcome {

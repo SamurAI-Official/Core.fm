@@ -109,6 +109,9 @@ interface GenerateBody {
   lyricLanguage?: string;
   lyricThemes?: string[];
   designSeed?: number;
+  /** Which model edition the song came from, and which prompt it answered. */
+  edition?: number | string;
+  promptId?: string;
 
   // Music Parameters
   duration?: number;
@@ -289,6 +292,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       lyricLanguage,
       lyricThemes,
       designSeed,
+      edition,
     } = req.body as GenerateBody;
 
     if (!customMode && !songDescription) {
@@ -367,6 +371,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       lyricLanguage,
       lyricThemes,
       designSeed,
+      // Which model edition generated this (0/absent = the base model), from the aggregator's design.
+      edition,
     };
 
     // Create the job and hand it to the engine. Shared with the retry path (services/generation.ts).
