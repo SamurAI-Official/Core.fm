@@ -14,6 +14,8 @@
     "lyric-audit": "tsx scripts/lyric-repetition-audit.ts",
     "feedback": "tsx src/index.ts feedback",
     "decay": "tsx src/index.ts decay",
+    "editions": "tsx src/index.ts editions",
+    "edition-corpus": "tsx src/index.ts edition-corpus",
     "run": "tsx src/index.ts run",
     "cycle": "tsx src/index.ts cycle",
     "report": "tsx src/index.ts report",

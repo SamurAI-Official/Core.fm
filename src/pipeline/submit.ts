@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { fetchWithRetry } from '../lib/http.js';
 import { sleep } from '../lib/util.js';
 import { pipeline } from './client.js';
+import { currentOrdinal } from '../loops/editions.js';
 import type { Concept } from '../design/types.js';
 
 export interface JobResult {
@@ -54,6 +55,12 @@ export function conceptToBody(concept: Concept, attribution?: { runId?: string }
     market: concept.market,
     conceptId: concept.id,
     runId: attribution?.runId,
+    /**
+     * Which model edition is in force. This is the provenance the whole soft-tuning loop turns on: a
+     * verdict on a response is only trainable evidence *for* the edition that produced it, so the response
+     * has to carry the edition and the verdict has to come back with it.
+     */
+    edition: currentOrdinal(),
     primaryGenre: concept.primaryGenre,
     lyricAgent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
     lyricSubject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,

@@ -41,11 +41,15 @@ export function insertFeedback(input: {
   source?: string;
   rater?: string;
   sourceId?: string;
+  /** The model edition that produced the judged response; the soft-tuning loop's provenance. */
+  edition?: string;
+  /** The prompt it answered, so a corpus can hold out whole prompts rather than single responses. */
+  promptId?: string;
 }): string {
   const id = uuid();
   pool.query(
-    `INSERT INTO feedback (id, market, verdict, score, reasons, features, source, rater, source_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO feedback (id, market, verdict, score, reasons, features, source, rater, source_id, edition, prompt_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.market ?? null,
@@ -56,6 +60,8 @@ export function insertFeedback(input: {
       input.source ?? 'api',
       input.rater ?? null,
       input.sourceId ?? null,
+      input.edition ?? null,
+      input.promptId ?? null,
     ],
   );
   return id;

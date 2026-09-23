@@ -42,6 +42,8 @@ import {
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
 import { applyUserSteps, userProfile } from '../loops/userProfile.js';
+import { currentEdition, currentOrdinal, describeEdition, listEditions, noWinTrials } from '../loops/editions.js';
+import { buildCorpus, describeCorpus, writeCorpus } from '../design/editionCorpus.js';
 import { nextTake } from '../design/nextTake.js';
 import { planFeedback } from '../scoring/feedback.js';
 import { runCycle } from '../loops/cycle.js';
@@ -240,17 +242,20 @@ export function createApp(): express.Express {
    */
   app.post('/api/feedback', (req: Request, res: Response) => {
     try {
-      const { market, verdict, score, reasons, features, source, learn, rater, sourceId } = req.body as {
-        market?: unknown;
-        verdict?: unknown;
-        score?: unknown;
-        reasons?: unknown;
-        features?: unknown;
-        source?: unknown;
-        learn?: unknown;
-        rater?: unknown;
-        sourceId?: unknown;
-      };
+      const { market, verdict, score, reasons, features, source, learn, rater, sourceId, edition, promptId } =
+        req.body as {
+          market?: unknown;
+          verdict?: unknown;
+          score?: unknown;
+          reasons?: unknown;
+          features?: unknown;
+          source?: unknown;
+          learn?: unknown;
+          rater?: unknown;
+          sourceId?: unknown;
+          edition?: unknown;
+          promptId?: unknown;
+        };
       if (verdict !== 'like' && verdict !== 'dislike' && verdict !== 'none') {
         res.status(400).json({ error: "verdict must be 'like', 'dislike' or 'none'" });
         return;
@@ -321,6 +326,8 @@ export function createApp(): express.Express {
         source: typeof source === 'string' ? source : 'api',
         rater: raterId,
         sourceId: sourceKey,
+        edition: edition === undefined || edition === null ? undefined : String(edition),
+        promptId: typeof promptId === 'string' && promptId ? promptId : undefined,
       });
 
       // Planned whenever the caller has not opted out *and* the caller is not over its cap. Note the
@@ -495,6 +502,42 @@ export function createApp(): express.Express {
   /** When the weights were last decayed, and how strong the rule is. */
   app.get('/api/decay', (_req: Request, res: Response) => {
     res.json(decayStatus());
+  });
+
+  /**
+   * The editions registry and the corpus for the next one.
+   *
+   * Read-only plus one explicit action: building a corpus writes a file and changes nothing about what
+   * listeners hear. Adoption is deliberately *not* exposed here yet - it belongs with the executor that
+   * can produce the evidence for it (preprocess, train, render, score), because an adoption endpoint that
+   * anything could call is an adoption that happens without a measurement.
+   */
+  app.get('/api/editions', (_req: Request, res: Response) => {
+    const editions = listEditions();
+    const current = currentEdition();
+    res.json({
+      current: current ? { id: current.id, ordinal: current.ordinal, adoptedAt: current.adoptedAt } : null,
+      /** 0 when the base model is in force, which is a state and not an error. */
+      currentOrdinal: currentOrdinal(),
+      noWinTrials: noWinTrials(),
+      maxNoWinTrials: config.edition.maxNoWinTrials,
+      editions: editions.map((edition) => ({ ...edition, summary: describeEdition(edition) })),
+    });
+  });
+
+  /** What the next edition would train on, and whether it is allowed to. */
+  app.get('/api/editions/corpus', (req: Request, res: Response) => {
+    const dryRunOnly = req.query.write !== 'true';
+    const corpus = buildCorpus();
+    const written = dryRunOnly ? null : writeCorpus(corpus);
+    res.json({
+      manifest: corpus.manifest,
+      notes: describeCorpus(corpus),
+      train: corpus.train.map((sample) => ({ id: sample.id, verdict: sample.verdict, reasons: sample.reasons, edition: sample.edition })),
+      heldOut: corpus.heldOut.map((pair) => ({ promptKey: pair.promptKey, market: pair.market, liked: pair.liked.length, disliked: pair.disliked.length })),
+      anchors: corpus.anchors.map((anchor) => ({ id: anchor.id, market: anchor.market, chartDerived: anchor.chartDerived })),
+      written,
+    });
   });
 
   /**

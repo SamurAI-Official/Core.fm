@@ -22,6 +22,8 @@ import { designConcepts } from './design/designer.js';
 import { rewriteLyrics } from './design/rewrite.js';
 import { feedbackSummary, listFeedback } from './loops/feedback.js';
 import { decayStatus, decayWeights, describeDecay } from './loops/decay.js';
+import { currentEdition, describeEdition, listEditions, noWinTrials } from './loops/editions.js';
+import { buildCorpus, describeCorpus, writeCorpus } from './design/editionCorpus.js';
 import { getWeights } from './loops/ratings.js';
 import { executeConcepts } from './pipeline/run.js';
 import { rateRun } from './loops/rate.js';
@@ -307,6 +309,37 @@ async function main(): Promise<void> {
           (dryRun ? '  [DRY RUN - nothing written]' : ''),
       );
       for (const line of describeDecay(report)) log(`  ${line}`);
+      return;
+    }
+
+    case 'editions': {
+      // The registry: which model is in force, what each candidate was trained on, and how it was judged.
+      const editions = listEditions();
+      const current = currentEdition();
+      const trials = noWinTrials();
+      log('');
+      log(
+        `editions: ${editions.length} recorded | in force: ` +
+          (current ? `#${current.ordinal} (${current.id.slice(0, 8)})` : 'the base model') +
+          ` | rejected since the last adoption: ${trials}/${config.edition.maxNoWinTrials}`,
+      );
+      for (const edition of editions) log(`  ${describeEdition(edition)}`);
+      return;
+    }
+
+    case 'edition-corpus': {
+      // What the next edition would train on. Writing is opt-in: reading a corpus must not create files.
+      const write = envFlag('npm_config_write') || args.flags.has('write') || args.values.get('write') === 'true';
+      const corpus = buildCorpus();
+      log('');
+      for (const line of describeCorpus(corpus)) log(line);
+      if (write && corpus.manifest.blockers.length === 0) {
+        log(`  written to ${writeCorpus(corpus)}`);
+      } else if (write) {
+        log('  not written: the corpus has blockers (see above)');
+      } else {
+        log('  (nothing written - pass --write to save it)');
+      }
       return;
     }
 

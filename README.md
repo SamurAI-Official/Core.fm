@@ -523,6 +523,7 @@ npm run cycle -- --generate 2        # collect → brief → design → render �
 | `npm run rate -- --run <id> --score 0.8` | Record a human rating; re-scores the run and updates weights |
 | `npm run feedback` | The preference ledger: what listeners said, and what they blamed |
 | `npm run decay` | Let go of unconfirmed weights (`-- --dry-run` to be told what it would do) |
+| `npm run editions` · `npm run edition-corpus` | The editions registry; what the next edition would train on (`-- --write` to save it) |
 | `npm run serve` | Dashboard + HTTP API (`--schedule` also starts the collector) |
 | `npm run typecheck` | TypeScript check |
 
@@ -746,6 +747,82 @@ A key that keeps being confirmed never moves: the clock only runs on weights nob
 Every pass can be observed: `GET /api/decay` reports when it last ran and the rule in force, and the
 pass itself answers with what moved, what was retired, the largest shift, and up to five example keys.
 
+## Model editions: the soft-tuning loop (Layer 2)
+
+Everything above teaches the *loop*: which genre, which writing style, which prompt. Layer 2 teaches the
+*model*. A **edition** is a LoRA tuned from the previous one - consecutive, never from scratch - on a
+corpus built from the preference ledger, and it only reaches listeners if it wins a measured comparison
+against the edition in force.
+
+This is the part of the system that is deliberately slow and deliberately timid, because it is the only
+part that can silently change the character of everything a listener hears. The three pieces are:
+
+| piece | what it owns | what it refuses to do |
+|---|---|---|
+| `design/editionCorpus.ts` | the training mix: preference pairs, anchors, the held-out split | train on a mix that is thin, anchor-less, or mostly negatives |
+| `loops/editionGate.ts` | the adoption decision: preference accuracy on held-out pairs | adopt on a tie, on a proxy metric, or on too little evidence |
+| `loops/editions.ts` | the registry: ordinals, provenance, evidence, the stop rule | allow two incumbents, or an adoption with no evaluation behind it |
+
+### The corpus, and its three guards
+
+Training on your own liked output **collapses**: the model drifts onto its own habits and the chart signal
+that gave it something to say is diluted away. So the mix is three parts, and only one of them is feedback:
+
+1. **preference pairs** from the ledger - a prompt, what it produced, and what the listener said about it.
+2. **anchors** - designs nobody has judged, taken from the loop's own chart-derived and curated material.
+   Without `EDITION_MIN_ANCHORS` of them the corpus **refuses to train**, because a mix that is only
+   feedback is a closed loop over its own output.
+3. **a cap on negatives** (`EDITION_MAX_NEGATIVES_PER_POSITIVE`, default 2:1). Dislikes teach a model what
+   to avoid, and a model taught only avoidance learns to avoid everything. Dislikes are ranked by how much
+   the listener had to say - a named reason teaches something specific, a bare thumbs-down does not.
+
+The split is by **prompt**, not by response: a response-level split would leave the held-out half full of
+prompts the candidate was already trained on, which measures memorisation rather than preference. The
+assignment is a hash of the prompt key, so it is stable as new feedback arrives - a held-out pair that
+moved between builds would leak into the next training run.
+
+### The gate
+
+A candidate is adopted only if it ranks held-out preference pairs better than the incumbent does, on
+prompts neither saw. A pair counts as correct when the model scores the *worst* liked response above the
+*best* disliked one - the strict reading of "this listener would rather have had that"; a mean-above-mean
+reading would pass a model that is merely louder on average.
+
+Five refusals, each answering a way an unsupervised loop makes a confident mistake:
+
+| what could go wrong | what the gate does |
+|---|---|
+| too little evidence | refuses below `EDITION_MIN_HELD_OUT_PAIRS` rather than judging from noise |
+| no improvement | a tie is a rejection - churning the model costs something and gains nothing |
+| a lucky pair | requires `EDITION_MIN_WIN_RATE` accuracy, not merely "better on the day" |
+| a broken candidate that wins the metric | the existing quality gates are a precondition, not a tiebreak |
+| tuning for ever | after `EDITION_MAX_NO_WIN_TRIALS` rejections the loop **halts** and asks for a human |
+
+The scorer is **injected** rather than implemented here: the real one means rendering through two editions
+and scoring the audio, which belongs to the executor, and keeping it outside is what makes the protocol
+testable offline against a known-good and a known-bad model.
+
+### Provenance, both ways
+
+Responses carry the edition that produced them (`edition` in the generation request), and verdicts come
+back with it. That is what makes feedback on edition N the training signal for N+1 - and it is recorded per
+response, not per campaign, so an edition's corpus can be re-examined after the fact.
+
+| Endpoint / command | Purpose |
+|---|---|
+| `npm run editions` | the registry: what is in force, what each candidate was trained on, how it was judged |
+| `npm run edition-corpus` | what the next edition would train on, and whether it is allowed to (`-- --write` saves it) |
+| `GET /api/editions` | the registry, the current ordinal, and how close the loop is to its stop rule |
+| `GET /api/editions/corpus` | the manifest, the split, the anchors and any blockers (`?write=true` saves the corpus) |
+
+### What is deliberately not built yet
+
+**The executor**: preprocess, train, export and score. The app already has every mechanical piece
+(`POST /api/training/preprocess` → `/start` → `/export`, with `resumeCheckpoint` taken from the incumbent),
+so the next slice is the glue plus a real `EditionScorer`, not new machinery. What exists now is the part
+that decides - and it decides in a way that can be tested without a GPU, which is the whole reason it was
+built first.
+
 ## Honest limitations
 
 - **Tempo is mostly inferred, not measured.** Deezer's public API now returns
@@ -802,6 +879,13 @@ pass itself answers with what moved, what was retired, the largest shift, and up
 - **A retired weight is not a forgotten one.** When a weight decays into the tolerance band the row is
   deleted, so the *weights* no longer show it - but its verdicts stay in the ledger for ever. Re-reading
   the history always works; re-deriving the weight needs a re-judgement, which is the intended cost.
+- **Training an edition needs more evidence than the ledger has yet.** The corpus refuses to build while
+  there are too few held-out pairs, too few training samples, or too few anchors - so on a young
+  installation Layer 2 is *observable but inert*, and says so rather than tuning on three clicks. That is
+  the intended state, not a defect to work around.
+- **A verdict from before editions existed carries no edition.** Those responses are still training
+  material (they are real preferences) but cannot be attributed to a model, so they appear in the corpus
+  as `unknown` and never in a held-out pair that compares two editions.
 - Chart artists appear as market *context* only. Designs are generated from genre,
   tempo and structure evidence, with original titles — no artist's song is imitated.
 
@@ -824,6 +908,13 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
 | `FEEDBACK_MAX_VERDICTS_PER_DAY` | `100` | Verdicts one listener may *act* with per window; `0` = unlimited. The rest are recorded, not acted on |
 | `FEEDBACK_RATE_LIMIT_WINDOW_HOURS` | `24` | The window that cap is measured over |
+| `EDITION_HELD_OUT_SHARE` | `0.3` | Share of *prompts* held out to judge a candidate edition |
+| `EDITION_MAX_NEGATIVES_PER_POSITIVE` | `2` | Negatives allowed per positive in the training mix |
+| `EDITION_MIN_ANCHORS` | `8` | Unjudged designs required in the mix; below this the corpus refuses to train |
+| `EDITION_MIN_TRAIN_SAMPLES` | `8` | Training samples required before tuning is worth a GPU run |
+| `EDITION_MIN_HELD_OUT_PAIRS` | `5` | Held-out pairs required before a candidate may be judged |
+| `EDITION_MIN_WIN_RATE` | `0.6` | Preference accuracy a candidate must reach on held-out pairs |
+| `EDITION_MAX_NO_WIN_TRIALS` | `3` | Consecutive losing candidates before the loop halts for a human |
 
 ## HTTP API
 
@@ -856,6 +947,7 @@ src/
   sources/    apple.ts deezer.ts itunes.ts store.ts collect.ts
   briefs/     build.ts types.ts                    market profiles
   design/     designer.ts prompt.ts lyrics.ts genreStyle.ts marketFlavor.ts store.ts provenance.ts nextTake.ts
+              editionCorpus.ts (the training mix for the next model edition, with its guards)
               (nextTake.ts: what a retry changes, given a rejection and a listener's profile)
   design/agents/   types.ts registry.ts arc.ts refrain-mutation.ts question-answer.ts
                    writing styles: arrangement + selection, one file per style
@@ -866,6 +958,7 @@ src/
   pipeline/   client.ts submit.ts run.ts            ACE-Step integration (submit carries attribution)
   scoring/    fit.ts score.ts feedback.ts            scoring, learning, what a verdict blames
   loops/      cycle.ts rate.ts store.ts ratings.ts feedback.ts promotion.ts userProfile.ts decay.ts
+              editions.ts editionGate.ts (the model-edition registry, and what may be adopted)
               the loop, the preference ledger, the agreement gate over its votes, each listener's
               own profile (which acts at once, unlike the gate), and the decay that lets go of what
               nobody has confirmed
