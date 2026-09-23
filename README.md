@@ -670,6 +670,42 @@ agree - and drives that listener's own profile to its floor unaided. So:
 The app surfaces it rather than letting a verdict go quiet: a capped verdict shows as *saved, but not
 learned from yet* instead of looking like it taught something.
 
+## An agent as a rater
+
+An autonomous caller (Shugocore, a panel, a reviewer) is a **rater**, not a privileged client. It uses the
+same single write path a listener's click uses - `POST /api/feedback` - so an agent's judgement and a
+person's cannot mean different things, and cannot move different weights. What differs is one flag:
+
+| | whose weights its verdicts move | when |
+|---|---|---|
+| ordinary rater (the default) | its **own profile** | immediately, on the verdict |
+| a rater named in `FEEDBACK_TRUSTED_RATERS` | the **market's** weights too | immediately, on the verdict |
+
+`FEEDBACK_TRUSTED_RATERS` is empty by default, which is the safe default: an agent's taste reaches a
+market only when somebody deliberately names it, and the same agent is an ordinary listener the moment the
+entry is removed. Trust is a *flag*, not a property of the name, so the change is one environment variable
+and a restart - and because every vote records its rater, a market's weights can always be explained by the
+raters behind them.
+
+**What a trusted rater still cannot do.** It is an exemption from the agreement gate and nothing else:
+
+- only **its own** votes move - it cannot carry anyone else's pending votes across the threshold with its own;
+- `FEEDBACK_PROMOTE=false` still writes nothing at all, so a shadow deployment stays a shadow deployment;
+- the daily cap still decides whether there is a plan to vote on, and the window still applies, so an agent's
+  stale verdict does not act months later;
+- a repeated report is still answered instead of counted twice, and a retraction still reverses what it moved.
+
+**Discovery.** `GET /api/agent` returns the contract as data - every endpoint an agent may use, the fields of
+the one write path, what each reply field means, what it cannot do, and the configuration in force. `GET
+/api/agent/state?market=gb&rater=agent:name` answers everything a session needs to orient in one round trip:
+which edition is in force and how close the stop rule is, the corpus and what blocks it, the market's weight
+notes, the rater's own profile and cap, and what would plausibly come next *derived from that state* rather
+than from a fixed script.
+
+```
+FEEDBACK_TRUSTED_RATERS=agent:shugocore     # comma-separated; empty (the default) trusts nobody
+```
+
 Where the votes come from: a song rendered through the aggregator carries its market and its design
 provenance (`market`, `conceptId`, `runId`, `primaryGenre`, `lyricAgent`, `lyricSubject`,
 `lyricThemes`) into the app's job params, so a verdict on the *audio* can be attributed back to the
@@ -1032,6 +1068,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `FEEDBACK_WINDOW_DAYS` | `30` | How long a vote counts toward a promotion |
 | `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
 | `FEEDBACK_MAX_VERDICTS_PER_DAY` | `100` | Verdicts one listener may *act* with per window; `0` = unlimited. The rest are recorded, not acted on |
+| `FEEDBACK_TRUSTED_RATERS` | *(empty)* | Comma-separated rater ids whose own verdicts move market weights without waiting for agreement. Empty trusts nobody; an agent acts on its own profile only |
 | `FEEDBACK_RATE_LIMIT_WINDOW_HOURS` | `24` | The window that cap is measured over |
 | `EDITION_HELD_OUT_SHARE` | `0.3` | Share of *prompts* held out to judge a candidate edition |
 | `EDITION_MAX_NEGATIVES_PER_POSITIVE` | `2` | Negatives allowed per positive in the training mix |
@@ -1062,6 +1099,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `GET /api/users/:rater/profile` | A listener's own profile: what they want more and less of, and how many verdicts it is built from |
 | `POST /api/next-take` | `{ rater, reasons, previous, excludeSeeds, attempt? }` → what to change for another take of the same prompt, with a note explaining each change |
 | `POST /api/decay` · `GET /api/decay` | Run a decay pass (or `{ "dryRun": true }` to be told what it would do); get the rule in force and when it last ran |
+| `GET /api/agent` · `GET /api/agent/state` | The agent contract as data (one write path, what each reply field means, what an agent cannot do, config in force), and one read that orients an autonomous caller: edition, stop rule, corpus blockers, weight notes, its own profile and cap, and what comes next |
 
 
 ## Files

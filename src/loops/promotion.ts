@@ -163,6 +163,70 @@ export function promoteFeedback(options: { market?: string; limit?: number } = {
   return events;
 }
 
+/**
+ * A trusted rater's own votes, applied without waiting for agreement.
+ *
+ * The gate exists to stop one *person* reshaping a market's taste. A rater named in
+ * `FEEDBACK_TRUSTED_RATERS` is an exemption from that, and it is deliberately narrow in three ways:
+ *
+ *   - **only that rater's votes move.** The query is scoped by rater, so a trusted rater cannot carry
+ *     anyone else's pending votes across the threshold with its own;
+ *   - **nothing is exempt from the rest.** The daily cap still stops a flood before there is a plan to
+ *     vote on, `FEEDBACK_PROMOTE=false` still writes nothing at all, and the window still applies, so a
+ *     stale verdict of an agent's does not act months later;
+ *   - **it is a flag, not an identity.** Trust lives in configuration rather than in the rater's name, so
+ *     the same rater is an ordinary listener the moment it is removed - and every vote it cast records
+ *     who cast it, so a market's weights can always be explained by the raters behind them.
+ *
+ * An agent whose verdicts should teach only its *own* profile is what happens with an empty
+ * `FEEDBACK_TRUSTED_RATERS`: Layer U still applies its verdicts at once, and the market waits.
+ */
+export function promoteRaterVotes(options: { market: string; rater: string }): PromotionEvent[] {
+  if (!config.feedback.promote) return [];
+  const rows = pool.query<Record<string, unknown>>(
+    `SELECT rowid AS id, key, sign, delta FROM feedback_votes
+     WHERE market = ? AND rater = ? AND promoted_at IS NULL AND withdrawn_at IS NULL
+       AND created_at >= datetime('now', ?)
+     ORDER BY created_at ASC`,
+    [options.market, options.rater, windowModifier()],
+  ).rows;
+  if (rows.length === 0) return [];
+
+  const groups = new Map<string, { key: string; sign: number; delta: number; ids: number[] }>();
+  for (const row of rows) {
+    const key = String(row.key);
+    const sign = Number(row.sign);
+    const id = `${key}|${sign}`;
+    const group = groups.get(id) ?? { key, sign, delta: 0, ids: [] };
+    group.delta += Number(row.delta);
+    group.ids.push(Number(row.id));
+    groups.set(id, group);
+  }
+
+  const events: PromotionEvent[] = [];
+  for (const group of groups.values()) {
+    const before = round(getWeight(options.market, group.key, 1), 4);
+    applySteps(options.market, [{ key: group.key, delta: group.delta } as WeightStep]);
+    const after = round(getWeight(options.market, group.key, 1), 4);
+    for (const id of group.ids) {
+      pool.query("UPDATE feedback_votes SET promoted_at = datetime('now') WHERE rowid = ?", [id]);
+    }
+    events.push({
+      market: options.market,
+      key: group.key,
+      sign: group.sign,
+      raters: 1,
+      votes: group.ids.length,
+      delta: round(group.delta, 4),
+      before,
+      after,
+      applied: true,
+      clampedToBound: Math.abs(before + group.delta - after) > 1e-4,
+    });
+  }
+  return events;
+}
+
 export interface WithdrawalResult {
   found: boolean;
   /** Votes that had never been acted on, so they simply stop counting. */
