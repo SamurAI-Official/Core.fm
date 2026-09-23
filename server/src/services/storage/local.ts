@@ -14,6 +14,14 @@ export class LocalStorageProvider implements StorageProvider {
     this.audioDir = AUDIO_DIR;
   }
 
+  /**
+   * Absolute path under this provider's own root - not `config.storage.audioDir`, which may be relative
+   * (`.env` sets `AUDIO_DIR=./public/audio`) and therefore means different things to different processes.
+   */
+  localPath(key: string): string | null {
+    return path.join(this.audioDir, key);
+  }
+
   async upload(key: string, data: Buffer, _contentType: string): Promise<string> {
     const filepath = path.join(this.audioDir, key);
     await mkdir(path.dirname(filepath), { recursive: true });

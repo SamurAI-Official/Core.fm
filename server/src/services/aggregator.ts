@@ -209,6 +209,47 @@ export async function fetchProfile(
   }
 }
 
+/**
+ * The training corpus the aggregator builds, with its manifest and guards.
+ *
+ * The aggregator owns what may be trained on (the mix, the held-out split, the guards), so the executor asks
+ * for the corpus rather than assembling one from its own queries: two builders of "what counts as training
+ * material" would drift, and the one that drifted would be the one feeding the GPU.
+ */
+export interface CorpusView {
+  hash: string;
+  manifest: {
+    hash: string;
+    editionOrdinal: number;
+    baseId: string | null;
+    counts: Record<string, number>;
+    byEdition: Record<string, number>;
+    reasons: Record<string, number>;
+    markets: Record<string, number>;
+    guards: Record<string, number>;
+    blockers: string[];
+  };
+  train: Array<Record<string, unknown>>;
+  heldOut: Array<{ promptKey: string; market: string | null; liked: unknown[]; disliked: unknown[] }>;
+  anchors: Array<Record<string, unknown>>;
+}
+
+export async function fetchCorpus(): Promise<{ ok: boolean; error?: string; corpus: CorpusView | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.aggregator.timeoutMs);
+  try {
+    const response = await fetch(`${config.aggregator.url}/api/editions/corpus`, { signal: controller.signal });
+    if (!response.ok) return { ok: false, error: `aggregator responded ${response.status}`, corpus: null };
+    const payload = (await response.json()) as CorpusView & { error?: string };
+    if (payload.error) return { ok: false, error: payload.error, corpus: null };
+    return { ok: true, corpus: payload };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message, corpus: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface NextTakeRequest {
   rater: string;
   reasons: string[];

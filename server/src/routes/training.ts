@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getGradioClient, hasGradioEndpoint } from '../services/gradio-client.js';
+import { callEngineDataset } from '../services/engineDataset.js';
 import { config } from '../config/index.js';
 import multer from 'multer';
 import path from 'path';
@@ -310,32 +311,8 @@ router.get('/audio', authMiddleware, async (req: AuthenticatedRequest, res: Resp
 });
 
 // POST /api/training/preprocess — Spawn Python preprocessing script
-/**
- * Call one of the engine's `/v1/dataset/*` endpoints.
- *
- * Those endpoints answer with a wrapper envelope (`{data, code, error}`) and still return HTTP 200
- * when the operation failed, so the body's `error`/`code` have to be checked, not just the status.
- */
-async function callEngineDataset(
-  endpoint: string,
-  body: Record<string, unknown>,
-  timeoutMs = 120_000,
-): Promise<{ data?: unknown; error?: string }> {
-  const response = await fetch(`${config.acestep.apiUrl}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const payload = (await response.json().catch(() => ({}))) as { data?: unknown; code?: number; error?: string };
-  if (!response.ok) {
-    return { error: payload.error ?? `${endpoint} failed: HTTP ${response.status}` };
-  }
-  if (payload.error || (typeof payload.code === 'number' && payload.code >= 400)) {
-    return { error: payload.error ?? `${endpoint} failed with code ${payload.code}` };
-  }
-  return { data: payload.data };
-}
+// The engine-call helper lives in services/engineDataset.ts, so this route and the edition executor share
+// one interpretation of the engine's wrapper envelope.
 
 // POST /api/training/preprocess — turn labeled samples into training tensors
 //
