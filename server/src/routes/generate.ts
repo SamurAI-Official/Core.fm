@@ -112,6 +112,12 @@ interface GenerateBody {
   /** Which model edition the song came from, and which prompt it answered. */
   edition?: number | string;
   promptId?: string;
+  /**
+   * `evaluation` marks a render made for a listening test - the A/B that decides whether a candidate
+   * edition replaces the incumbent. Those renders are judged like any other, but their verdicts must never
+   * become training material, or the next candidate would be trained on the held-out set.
+   */
+  renderRole?: 'evaluation';
 
   // Music Parameters
   duration?: number;
@@ -293,6 +299,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       lyricThemes,
       designSeed,
       edition,
+      renderRole,
     } = req.body as GenerateBody;
 
     if (!customMode && !songDescription) {
@@ -371,8 +378,10 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       lyricLanguage,
       lyricThemes,
       designSeed,
-      // Which model edition generated this (0/absent = the base model), from the aggregator's design.
+      // Which model edition generated this (0/absent = the base model), from the aggregator's design, and
+      // whether this render is part of a listening test rather than material the corpus may learn from.
       edition,
+      renderRole,
     };
 
     // Create the job and hand it to the engine. Shared with the retry path (services/generation.ts).

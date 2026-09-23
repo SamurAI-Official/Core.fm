@@ -618,6 +618,9 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
       // for the edition that produced the response, and a held-out set has to be split by prompt.
       edition: typeof params.edition === 'number' || typeof params.edition === 'string' ? String(params.edition) : undefined,
       promptId: song.rows[0]?.prompt_id ? String(song.rows[0].prompt_id) : undefined,
+      // A render made for a listening test is evidence about two editions, not material to train on: the
+      // harness tags those jobs, and the tag travels with the verdict so the corpus can exclude it.
+      role: params.renderRole === 'evaluation' ? 'evaluation' : undefined,
       features: {
         genre: typeof params.primaryGenre === 'string' ? params.primaryGenre : undefined,
         bpm: typeof params.bpm === 'number' ? params.bpm : undefined,

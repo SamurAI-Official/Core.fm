@@ -36,6 +36,14 @@ export interface PreferenceReport {
   edition?: string;
   /** The prompt the response answered, so the corpus can hold out whole prompts. */
   promptId?: string;
+  /**
+   * Whether this verdict may be learned from (`training`, the default) or only judged with (`evaluation`).
+   *
+   * Set by the listening harness on the renders it makes to compare two editions. Without it the verdict
+   * would enter the training corpus, the next candidate would be trained on the held-out set, and the gate
+   * would end up measuring memorisation of its own test material.
+   */
+  role?: 'training' | 'evaluation';
 }
 
 export interface PreferenceOutcome {
