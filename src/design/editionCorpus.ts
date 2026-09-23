@@ -77,6 +77,8 @@ export interface CorpusManifest {
     anchors: number;
     /** Samples dropped by the negatives cap - dropped, not hidden, so the mix can be audited. */
     negativesDropped: number;
+    /** Verdicts held back because they are evaluation evidence rather than training material. */
+    evaluationExcluded: number;
   };
   /** Which edition each sample came from: the loop's own provenance, so drift is measurable. */
   byEdition: Record<string, number>;
@@ -106,10 +108,12 @@ export interface EditionCorpus {
 }
 
 function judgedSamples(): CorpusSample[] {
+  // Evaluation verdicts are excluded: they come from listening to the held-out prompts, and training on
+  // them would make the next gate measure memorisation of its own test set.
   const { rows } = pool.query<Record<string, unknown>>(
     `SELECT id, verdict, reasons, features, market, source_id, prompt_id, edition, created_at
      FROM feedback
-     WHERE source_id IS NOT NULL AND withdrawn = 0
+     WHERE source_id IS NOT NULL AND withdrawn = 0 AND role <> 'evaluation'
      ORDER BY created_at ASC, id ASC`,
   );
   return rows.map((row) => ({
@@ -217,6 +221,11 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
 
   const all = judgedSamples();
   const judgedIds = new Set(all.map((sample) => sample.id));
+  const evaluationExcluded = Number(
+    pool.query<Record<string, unknown>>(
+      "SELECT COUNT(*) AS n FROM feedback WHERE source_id IS NOT NULL AND role = 'evaluation'",
+    ).rows[0]?.n ?? 0,
+  );
 
   // Split by prompt. A prompt is held out whole, so a held-out pair is a prompt the candidate never saw.
   const train: CorpusSample[] = [];
@@ -270,6 +279,7 @@ export function buildCorpus(options: CorpusOptions = {}): EditionCorpus {
     heldOutPairs: heldOutPairs.length,
     anchors: anchors.length,
     negativesDropped,
+    evaluationExcluded,
   };
 
   const byEdition: Record<string, number> = {};

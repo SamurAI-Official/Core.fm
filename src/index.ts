@@ -24,6 +24,7 @@ import { feedbackSummary, listFeedback } from './loops/feedback.js';
 import { decayStatus, decayWeights, describeDecay } from './loops/decay.js';
 import { currentEdition, describeEdition, listEditions, noWinTrials } from './loops/editions.js';
 import { buildCorpus, describeCorpus, writeCorpus } from './design/editionCorpus.js';
+import { describeEvidence, evaluationEvidence, evaluationPlan } from './loops/editionEvaluation.js';
 import { getWeights } from './loops/ratings.js';
 import { executeConcepts } from './pipeline/run.js';
 import { rateRun } from './loops/rate.js';
@@ -339,6 +340,21 @@ async function main(): Promise<void> {
         log('  not written: the corpus has blockers (see above)');
       } else {
         log('  (nothing written - pass --write to save it)');
+      }
+      return;
+    }
+
+    case 'edition-evidence': {
+      // What the listening test has decided so far. Separate from the registry because it is the half of
+      // the loop that needs a person: renders waiting to be judged, and prompts judged on one edition only.
+      const evidence = evaluationEvidence();
+      log('');
+      log('listening test:');
+      for (const line of describeEvidence(evidence)) log(`  ${line}`);
+      const plan = evaluationPlan('(candidate)', null, buildCorpus().heldOut);
+      if (evidence.pairs.length === 0) {
+        log('  nothing decided yet - the plan below is what a listening test has to do:');
+        for (const step of plan.steps) log(`    - ${step}`);
       }
       return;
     }

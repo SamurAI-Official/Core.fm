@@ -307,6 +307,13 @@ ensureColumn('user_weights', 'decayed_at', 'TEXT');
 // out whole prompts rather than single responses.
 ensureColumn('feedback', 'edition', 'TEXT');
 ensureColumn('feedback', 'prompt_id', 'TEXT');
+// Whether a verdict may be *learned* from ('training') or only *judged* with ('evaluation').
+//
+// An edition is adopted by rendering the held-out prompts under both editions and listening, and those
+// renders produce verdicts like any others. If they were training material the next candidate would be
+// trained on the held-out set and the gate would be measuring memorisation - so the role is recorded per
+// verdict and the corpus ignores everything marked 'evaluation'.
+ensureColumn('feedback', 'role', "TEXT NOT NULL DEFAULT 'training'");
   backfillTrackKeys();
   exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_editions_one_adopted ON editions (status) WHERE status = 'adopted';

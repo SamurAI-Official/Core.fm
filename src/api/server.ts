@@ -42,7 +42,9 @@ import {
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
 import { applyUserSteps, userProfile } from '../loops/userProfile.js';
-import { currentEdition, currentOrdinal, describeEdition, listEditions, noWinTrials } from '../loops/editions.js';
+import { currentEdition, currentOrdinal, describeEdition, getEdition, listEditions, noWinTrials, adoptEdition, createCandidate, rejectEdition } from '../loops/editions.js';
+import { decisionRecord, describeDecision, judgeCandidate } from '../loops/editionGate.js';
+import { describeEvidence, evaluationEvidence, evaluationPlan, listenerScorer, BASE_EDITION_ID } from '../loops/editionEvaluation.js';
 import { buildCorpus, describeCorpus, writeCorpus } from '../design/editionCorpus.js';
 import { nextTake } from '../design/nextTake.js';
 import { planFeedback } from '../scoring/feedback.js';
@@ -242,7 +244,7 @@ export function createApp(): express.Express {
    */
   app.post('/api/feedback', (req: Request, res: Response) => {
     try {
-      const { market, verdict, score, reasons, features, source, learn, rater, sourceId, edition, promptId } =
+      const { market, verdict, score, reasons, features, source, learn, rater, sourceId, edition, promptId, role } =
         req.body as {
           market?: unknown;
           verdict?: unknown;
@@ -255,6 +257,7 @@ export function createApp(): express.Express {
           sourceId?: unknown;
           edition?: unknown;
           promptId?: unknown;
+          role?: unknown;
         };
       if (verdict !== 'like' && verdict !== 'dislike' && verdict !== 'none') {
         res.status(400).json({ error: "verdict must be 'like', 'dislike' or 'none'" });
@@ -328,6 +331,9 @@ export function createApp(): express.Express {
         sourceId: sourceKey,
         edition: edition === undefined || edition === null ? undefined : String(edition),
         promptId: typeof promptId === 'string' && promptId ? promptId : undefined,
+        // Only 'evaluation' is honoured; anything else is training material, so a typo cannot silently
+        // turn a listening-test verdict into (or away from) learning.
+        role: role === 'evaluation' ? 'evaluation' : 'training',
       });
 
       // Planned whenever the caller has not opted out *and* the caller is not over its cap. Note the
@@ -538,6 +544,180 @@ export function createApp(): express.Express {
       anchors: corpus.anchors.map((anchor) => ({ id: anchor.id, market: anchor.market, chartDerived: anchor.chartDerived })),
       written,
     });
+  });
+
+  /**
+   * Register a candidate edition prepared by the executor.
+   *
+   * The executor owns the training run (dataset, preprocess, train, export) because that needs the engine
+   * and the audio; this owns the record. A candidate is registered *before* it is judged, so a training run
+   * can be inspected - and thrown away - without ever being in force.
+   */
+  app.post('/api/editions/candidates', (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as {
+        datasetHash?: unknown;
+        datasetManifest?: unknown;
+        datasetPath?: unknown;
+        hyperparameters?: unknown;
+        adapterPath?: unknown;
+        baseId?: unknown;
+        feedbackWindow?: unknown;
+        notes?: unknown;
+      };
+      if (typeof body.datasetHash !== 'string' || !body.datasetHash) {
+        res.status(400).json({ error: 'datasetHash is required: a candidate must name the corpus it trained on' });
+        return;
+      }
+      const base = currentEdition();
+      const edition = createCandidate({
+        baseId: typeof body.baseId === 'string' ? body.baseId : (base?.id ?? null),
+        datasetHash: body.datasetHash,
+        datasetManifest:
+          body.datasetManifest && typeof body.datasetManifest === 'object'
+            ? (body.datasetManifest as Record<string, unknown>)
+            : {},
+        datasetPath: typeof body.datasetPath === 'string' ? body.datasetPath : undefined,
+        hyperparameters:
+          body.hyperparameters && typeof body.hyperparameters === 'object'
+            ? (body.hyperparameters as Record<string, unknown>)
+            : {},
+        adapterPath: typeof body.adapterPath === 'string' ? body.adapterPath : undefined,
+        feedbackWindow:
+          body.feedbackWindow && typeof body.feedbackWindow === 'object'
+            ? (body.feedbackWindow as Record<string, unknown>)
+            : undefined,
+        notes: typeof body.notes === 'string' ? body.notes : undefined,
+      });
+      res.json({
+        edition,
+        /** The hyperparameters the executor should use if it has not run yet: the engine's own defaults. */
+        defaults: { rank: 64, alpha: 128, dropout: 0.1, learningRate: 0.0003, epochs: 1000, batchSize: 1, saveEvery: 200, shift: 3, seed: 42 },
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /**
+   * Judge a candidate edition on the evidence from a listening test, and act on the verdict.
+   *
+   * This is where the loop is allowed to change what listeners hear, so everything it needs is required:
+   * the candidate, the incumbent it would replace (or the base model), the quality gates that already
+   * exist, and enough decided pairs to tell the two apart. The evidence is *not* supplied by the caller -
+   * it is read from verdicts the listener gave, which is the whole point: adoption rests on preference,
+   * not on a number the trainer reports.
+   *
+   * A `halt` is not a failure. It means the loop has produced `EDITION_MAX_NO_WIN_TRIALS` candidates in a
+   * row that could not beat what is already in force, and the honest thing is to stop and let a person
+   * look at the corpus rather than keep spending GPU time on noise.
+   */
+  app.post('/api/editions/:id/evaluate', (req: Request, res: Response) => {
+    try {
+      const candidate = getEdition(String(req.params.id));
+      if (!candidate) {
+        res.status(404).json({ error: 'edition not found' });
+        return;
+      }
+      if (candidate.status === 'adopted' || candidate.status === 'retired') {
+        res.status(409).json({ error: `edition is ${candidate.status}; only a candidate can be judged` });
+        return;
+      }
+
+      const body = (req.body ?? {}) as { qualityGates?: unknown; dryRun?: unknown };
+      const qualityGatesInput = body.qualityGates as { passed?: unknown; failures?: unknown } | undefined;
+      const qualityGates = {
+        passed: qualityGatesInput?.passed !== false,
+        failures: Array.isArray(qualityGatesInput?.failures)
+          ? (qualityGatesInput?.failures as unknown[]).map(String)
+          : [],
+      };
+
+      const evidence = evaluationEvidence();
+      const incumbent = currentEdition();
+      const incumbentId = incumbent?.id ?? BASE_EDITION_ID;
+      /**
+       * Only the pairs that compare *these two editions*.
+       *
+       * The evidence accumulates - every listening test ever run stays in the ledger - and without this
+       * filter a new candidate is judged on history: pairs where the incumbent beat some *other* edition
+       * read as losses for a candidate that was not involved, so a good candidate can be refused for
+       * something it never did. A pair where the candidate is not one of the two sides says nothing about
+       * whether to adopt it, so it is set aside (and counted, so the omission is visible).
+       */
+      const pairs = evidence.pairs.filter(
+        (pair) =>
+          (pair.likedEdition === candidate.id || pair.dislikedEdition === candidate.id) &&
+          (pair.likedEdition === incumbentId || pair.dislikedEdition === incumbentId),
+      );
+      const setAside = evidence.pairs.length - pairs.length;
+
+      const decision = judgeCandidate({
+        candidateId: candidate.id,
+        /**
+         * The base model is a real comparison target, not a missing incumbent: its renders carry the
+         * 'base' pseudo-id, so a listener's preference against them is what decides. Only when nothing was
+         * adopted *and* the base model never rendered does this fall back to "no incumbent".
+         */
+        incumbentId,
+        pairs,
+        score: listenerScorer(evidence.editions),
+        qualityGates,
+        noWinTrials: noWinTrials(),
+      });
+      const record = decisionRecord(decision);
+
+      if (body.dryRun === true) {
+        res.json({
+          dryRun: true,
+          candidate: { id: candidate.id, ordinal: candidate.ordinal },
+          incumbentId,
+          decision: record,
+          notes: describeDecision(decision),
+          evidence: describeEvidence(evidence),
+          /** Pairs from other comparisons, set aside because they say nothing about this one. */
+          setAside,
+        });
+        return;
+      }
+
+      const applied =
+        decision.decision === 'adopt'
+          ? adoptEdition(candidate.id, record, { notes: `adopted on ${decision.pairs} listened pair(s)` })
+          : rejectEdition(candidate.id, record);
+
+      res.json({
+        candidate: { id: candidate.id, ordinal: candidate.ordinal, status: applied.status },
+        incumbentId,
+        decision: record,
+        notes: describeDecision(decision),
+        evidence: describeEvidence(evidence),
+        setAside,
+        /** What the next render should carry now: 0 for the base model, otherwise the adopted ordinal. */
+        currentOrdinal: currentOrdinal(),
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /**
+   * What the harness has to render for a listening test, and what is already waiting to be judged.
+   *
+   * Phrased as work rather than as data, because the two failure points of a listening test are rendering
+   * a prompt under only one edition (which cannot compare anything) and judging only one of the two
+   * renders - both of which the plan and the evidence count make visible instead of silently producing an
+   * unconvincing evaluation.
+   */
+  app.get('/api/editions/:id/evaluation-plan', (req: Request, res: Response) => {
+    const candidate = getEdition(String(req.params.id));
+    if (!candidate) {
+      res.status(404).json({ error: 'edition not found' });
+      return;
+    }
+    const incumbent = currentEdition();
+    const corpus = buildCorpus();
+    res.json(evaluationPlan(candidate.id, incumbent?.id ?? null, corpus.heldOut));
   });
 
   /**

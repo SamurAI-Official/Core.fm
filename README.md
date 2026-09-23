@@ -815,6 +815,40 @@ response, not per campaign, so an edition's corpus can be re-examined after the 
 | `GET /api/editions` | the registry, the current ordinal, and how close the loop is to its stop rule |
 | `GET /api/editions/corpus` | the manifest, the split, the anchors and any blockers (`?write=true` saves the corpus) |
 
+### The evaluation is a listening test, not a proxy
+
+The rule that governs the market weights governs adoption too: **a model grading its own output is not
+evidence**. So a candidate is not judged on a loss curve, an embedding distance, or the engine's quality
+signals. The held-out prompts are rendered under both editions, the two renders are presented unlabelled,
+and the listener says which they would rather have - the same judgement, by the same person, that selected
+the material the candidate would be trained on. It costs a GPU render per held-out prompt per edition; what
+it buys is that the number the loop optimises cannot be gamed by the loop.
+
+Turning that into the gate's inputs is deliberately trivial: the liked render and the disliked render on a
+prompt are the pair, each carries the edition that produced it, and an edition scores 1 on its own render
+and 0 on the other's. A prompt where both renders came from one edition is *ambiguous* - the listener had a
+preference, but not between the two editions - so it is counted and set aside rather than quietly weakening
+the result.
+
+Two rules keep the test honest, and both exist because their absence produced a wrong decision in testing:
+
+- **A candidate is judged only on its own comparison.** The evidence accumulates in the ledger, so without
+  a filter a new candidate is judged on history: pairs where the incumbent beat some *other* edition read as
+  losses for a candidate that was never involved. Pairs from other comparisons are set aside, counted, and
+  reported.
+- **Evaluation verdicts are never training material.** Renders made for a listening test are tagged
+  (`renderRole` on the job, `role: 'evaluation'` on the verdict) and the corpus excludes them
+  (`evaluationExcluded` in the manifest) - otherwise the next candidate would be trained on the held-out
+  set and the gate would be measuring memorisation of its own test.
+
+| Endpoint / command | Purpose |
+|---|---|
+| `POST /api/editions/candidates` | register a candidate the executor trained (corpus hash, hyperparameters, adapter path) |
+| `GET /api/editions/:id/evaluation-plan` | the prompts to render under both editions, the evidence so far, and the steps |
+| `POST /api/editions/:id/evaluate` | run the gate on the listening evidence, then adopt, reject or halt (`dryRun` to only ask) |
+| `npm run edition-evidence` | what the listening test has decided, and what it still needs |
+
+
 ### What is deliberately not built yet
 
 **The executor**: preprocess, train, export and score. The app already has every mechanical piece
@@ -886,6 +920,14 @@ built first.
 - **A verdict from before editions existed carries no edition.** Those responses are still training
   material (they are real preferences) but cannot be attributed to a model, so they appear in the corpus
   as `unknown` and never in a held-out pair that compares two editions.
+- **Adoption needs a person, not just a GPU.** The listening test is the honest way to judge an edition and
+  it is not free: a render per held-out prompt per edition, and someone to listen. That is a deliberate
+  cost - the alternative is a metric the loop can optimise against itself, which this system has refused
+  everywhere else.
+- **Edition ordinals are a saga counter, not a sequence of survivors.** A rejected candidate keeps its
+  ordinal, so the numbers a song records may skip; `editions` is the only place that says what each ordinal
+  meant. That is why the ordinal is taken from the registry (`MAX(ordinal) + 1`) rather than from the
+  incumbent - two editions sharing an ordinal would make every song's provenance ambiguous.
 - Chart artists appear as market *context* only. Designs are generated from genre,
   tempo and structure evidence, with original titles — no artist's song is imitated.
 
