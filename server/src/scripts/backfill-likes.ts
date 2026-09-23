@@ -32,11 +32,13 @@ interface LikedRow {
 
 async function run() {
   const dryRun = process.argv.includes('--dry-run') || process.env.npm_config_dry_run === 'true';
-  const { rows } = await pool.query<LikedRow>(
+  // The pool's `query` is untyped, so the row shape is asserted here rather than passed as a type argument.
+  const { rows: rawRows } = await pool.query(
     `SELECT l.user_id, l.song_id, s.prompt_id, s.generation_params, l.liked_at
      FROM liked_songs l JOIN songs s ON s.id = l.song_id
      ORDER BY l.liked_at ASC`
   );
+  const rows = (rawRows ?? []) as LikedRow[];
 
   console.log(
     `[likes:backfill] ${rows.length} like(s) in liked_songs${dryRun ? ' | DRY RUN - nothing will be sent' : ''}`
