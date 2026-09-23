@@ -635,7 +635,18 @@ button that seems to do nothing.
 **Retraction is real.** `verdict: 'none'` finds the caller's most recent verdict on the same
 response and takes it out of the count: votes that had never crossed are released, and votes that
 had already moved a weight are reversed by applying the opposite step. Reversal lands *roughly* on
-the earlier value, because the weights are clamped — the response says exactly what it did.
+the earlier value, because the weights are clamped — the response says exactly what it did. A
+retraction needs no market, and it undoes the listener's **own** profile too, not just the market's
+votes; the steps a verdict decided on are recorded with it precisely so that is possible.
+
+**One verdict per (rater, response), and a replay is not a second opinion.** A report that repeats a
+verdict the ledger already holds is answered with `replayed: true` and writes nothing — an agent retrying a
+POST, or a backfill run twice, must not count twice toward agreement or take a second step in a profile. A
+report that *differs* from an existing verdict replaces it: the old row is withdrawn, its votes released or
+reversed and its profile steps undone, then the new one is recorded (`replaced` says what it undid). If the
+caller is over their daily cap, a replacement is **refused** and the earlier verdict is left standing —
+withdrawing it in favour of a judgement that acts on nothing would take a preference away and give back
+none.
 
 **Two escape hatches.** `FEEDBACK_PROMOTE=false` records and reports but never writes, so a
 deployment can watch the distribution of votes before letting any of them act. And
@@ -780,6 +791,25 @@ The split is by **prompt**, not by response: a response-level split would leave 
 prompts the candidate was already trained on, which measures memorisation rather than preference. The
 assignment is a hash of the prompt key, so it is stable as new feedback arrives - a held-out pair that
 moved between builds would leak into the next training run.
+
+**What counts as judged material.** Two sources, one meaning:
+
+| source | where it comes from | audio |
+|---|---|---|
+| a listener's song | the ledger (`feedback`, one row per verdict) | the app's own, resolved by song id |
+| a rated render of this loop | `ratings` joined to `runs` | `runs.local_audio` |
+
+The second used to be invisible, which made a batch of forty-odd renders with five ratings look like an
+empty corpus - the same blind spot that hid the app's likes. A rating is read as a preference by three
+rules: an explicit `like`/`dislike` wins outright; otherwise the loop's own bars apply (at or above
+`scoring.championThreshold` is a positive, below `viableThreshold` a negative) and the band between them is
+**ambiguous and skipped** rather than guessed at; and only the **latest** rating of a run counts, because
+re-rating is a change of mind on the same audio. A rated render's prompt key is its **concept**, so the
+held-out half holds out whole designs rather than single renders of them.
+
+A held-out pair needs a **liked reference**, not a dislike: the judge renders the prompt under both editions
+and asks which is closer to what the listener liked there. Requiring both sides was a leftover, and it made
+a real batch unusable - eleven likes across eleven prompts produced zero pairs.
 
 ### The gate
 
@@ -936,7 +966,14 @@ before it will do anything at all.
   one listener can act with, and the decay are what keep that from compounding without limit.
 - **A promoted step is only *roughly* reversible.** Retracting a verdict applies the opposite delta,
   and because weights are clamped, a reversal of a step that was itself clamped cannot land on the
-  exact earlier value. The response reports the value it actually reached.
+  exact earlier value. The response reports the value it actually reached. The same applies to the
+  listener's own profile when a retraction or a change of mind undoes it.
+- **The corpus sees judged material, not everything rendered.** A verdict counts only for a response a
+  listener judged; the loop's own unrated renders are not training material, they are *anchors* only if
+  their design carries chart-derived or curated material. And a judged sample whose audio is gone is
+  counted and reported (`counts.withAudio`) but cannot be trained on — the executor, not the corpus,
+  resolves a song id to a file, which is why a listener's samples carry `audio: null` and a rated render
+  carries its path.
 - **A lyric complaint has nothing to blame on a prompt nobody designed.** If a listener writes their own
   prompt, no writing style or subject was chosen for them, so `lyrics` / `bad-lyrics` moves nothing in
   their profile and a retry leaves the words alone (and says so). It is not a silent no-op: it is the

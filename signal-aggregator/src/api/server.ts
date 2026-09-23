@@ -32,7 +32,7 @@ import { getWeights, unratedRuns, weightNotes } from '../loops/ratings.js';
 import { rateRun } from '../loops/rate.js';
 import {
   feedbackSummary,
-  findFeedbackBySource,
+  findRaterVerdict,
   insertFeedback,
   insertVotes,
   listFeedback,
@@ -41,7 +41,7 @@ import {
 } from '../loops/feedback.js';
 import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
-import { applyUserSteps, userProfile } from '../loops/userProfile.js';
+import { applyUserSteps, reverseUserSteps, userProfile } from '../loops/userProfile.js';
 import { currentEdition, currentOrdinal, describeEdition, getEdition, listEditions, noWinTrials, adoptEdition, createCandidate, rejectEdition } from '../loops/editions.js';
 import { decisionRecord, describeDecision, judgeCandidate } from '../loops/editionGate.js';
 import { describeEvidence, evaluationEvidence, evaluationPlan, listenerScorer, BASE_EDITION_ID } from '../loops/editionEvaluation.js';
@@ -285,34 +285,87 @@ export function createApp(): express.Express {
 
       // Retraction: the same person taking back the same judgement.
       if (verdict === 'none') {
-        if (!marketCode || !raterId || !sourceKey) {
+        if (!raterId || !sourceKey) {
           res.json({
             verdict,
             market: marketCode ?? null,
             withdrawn: null,
-            note: 'nothing to retract: market, rater and sourceId are all needed to find the verdict',
+            note: 'nothing to retract: rater and sourceId are both needed to find the verdict',
           });
           return;
         }
-        const prior = findFeedbackBySource({ market: marketCode, rater: raterId, sourceId: sourceKey });
+        // Found without a market, because a verdict on a song nobody designed a market for still has to be
+        // takeable back. The market is read off the row that is being retracted, not off the request.
+        const prior = findRaterVerdict({ rater: raterId, sourceId: sourceKey });
         if (!prior) {
           res.json({
             verdict,
-            market: marketCode,
+            market: marketCode ?? null,
             withdrawn: null,
             note: 'no verdict of yours to retract on this response',
           });
           return;
         }
-        const result = withdrawFeedback({ market: marketCode, feedbackId: prior.id });
+        const result = prior.market
+          ? withdrawFeedback({ market: prior.market, feedbackId: prior.id })
+          : { found: false, released: 0, reversed: [] };
+        const profileUndone = reverseUserSteps(raterId, prior.plan);
         markWithdrawn(prior.id);
         res.json({
           verdict,
-          market: marketCode,
-          withdrawn: { id: prior.id, was: prior.verdict, ...result },
-          notes: weightNotes(marketCode),
+          market: prior.market,
+          withdrawn: {
+            id: prior.id,
+            was: prior.verdict,
+            released: result.released,
+            reversed: result.reversed,
+            profile: profileUndone,
+          },
+          notes: prior.market ? weightNotes(prior.market) : [],
         });
         return;
+      }
+
+      /**
+       * One verdict per (rater, response). A replayed report is not a second opinion, and an agent that
+       * retries a POST is the likely caller - counting it twice would double its votes toward agreement
+       * and double the step in its own profile. So:
+       *
+       *   - same verdict again: answered as a replay, nothing written, nothing moved;
+       *   - a different verdict: the old one is withdrawn (votes released or reversed, profile undone) and
+       *     the new one takes its place, which is what changing your mind has to mean if retraction and
+       *     re-judging are to compose.
+       */
+      const existing = raterId && sourceKey ? findRaterVerdict({ rater: raterId, sourceId: sourceKey }) : null;
+      if (existing && existing.verdict === verdict) {
+        res.json({
+          id: existing.id,
+          verdict,
+          market: existing.market,
+          rater: raterId ?? null,
+          recorded: true,
+          replayed: true,
+          votes: 0,
+          applied: [],
+          pending: [],
+          profile: [],
+          note: 'already recorded by this rater on this response; nothing changed',
+        });
+        return;
+      }
+      let replaced: { id: string; was: string; released: number; reversed: string[]; profile: string[] } | null = null;
+      if (existing) {
+        const undone = existing.market
+          ? withdrawFeedback({ market: existing.market, feedbackId: existing.id })
+          : { found: false, released: 0, reversed: [] };
+        replaced = {
+          id: existing.id,
+          was: existing.verdict,
+          released: undone.released,
+          reversed: undone.reversed,
+          profile: reverseUserSteps(raterId as string, existing.plan),
+        };
+        markWithdrawn(existing.id);
       }
 
       // The cap is checked *before* this verdict is recorded, so the Nth verdict is the last one that
@@ -320,21 +373,36 @@ export function createApp(): express.Express {
       const rateLimit = raterId ? verdictRateLimit(raterId) : null;
       const rateLimited = Boolean(rateLimit && !rateLimit.allowed);
 
-      const id = insertFeedback({
-        market: marketCode,
-        verdict,
-        score: typeof score === 'number' ? score : undefined,
-        reasons: reasonList,
-        features: cleanFeatures,
-        source: typeof source === 'string' ? source : 'api',
-        rater: raterId,
-        sourceId: sourceKey,
-        edition: edition === undefined || edition === null ? undefined : String(edition),
-        promptId: typeof promptId === 'string' && promptId ? promptId : undefined,
-        // Only 'evaluation' is honoured; anything else is training material, so a typo cannot silently
-        // turn a listening-test verdict into (or away from) learning.
-        role: role === 'evaluation' ? 'evaluation' : 'training',
-      });
+      /**
+       * Over the cap *and* changing an earlier verdict: refuse, and leave the earlier one standing.
+       *
+       * The alternative - withdrawing the old verdict and recording a new one that acts on nothing - would
+       * take away a preference the listener had already expressed and replace it with a judgement that
+       * teaches nothing, which is the worst of both. One standing verdict per (rater, response) is what the
+       * corpus, the judge and retraction all rely on, so the pair is left as it was.
+       */
+      if (existing && rateLimited) {
+        res.json({
+          id: existing.id,
+          verdict: existing.verdict,
+          market: existing.market,
+          rater: raterId ?? null,
+          recorded: true,
+          replayed: false,
+          replaced: null,
+          votes: 0,
+          applied: [],
+          pending: [],
+          profile: [],
+          rateLimited,
+          rateLimit,
+          note:
+            `you are over the cap of ${rateLimit?.limit ?? 0} verdicts per ` +
+            `${rateLimit?.windowHours ?? 24}h, so the verdict you already gave on this response stands; ` +
+            'retract it if you want to withdraw it',
+        });
+        return;
+      }
 
       // Planned whenever the caller has not opted out *and* the caller is not over its cap. Note the
       // scope split: a *market* needs a market (below), but the caller's own profile does not - which is
@@ -350,6 +418,26 @@ export function createApp(): express.Express {
               reasons: reasonList,
               features: cleanFeatures,
             });
+
+      const id = insertFeedback({
+        market: marketCode,
+        verdict,
+        score: typeof score === 'number' ? score : undefined,
+        reasons: reasonList,
+        features: cleanFeatures,
+        source: typeof source === 'string' ? source : 'api',
+        rater: raterId,
+        sourceId: sourceKey,
+        edition: edition === undefined || edition === null ? undefined : String(edition),
+        promptId: typeof promptId === 'string' && promptId ? promptId : undefined,
+        // Only 'evaluation' is honoured; anything else is training material, so a typo cannot silently
+        // turn a listening-test verdict into (or away from) learning.
+        role: role === 'evaluation' ? 'evaluation' : 'training',
+        // Recorded with the row so a later retraction can undo the listener's own profile, not just the
+        // market's votes.
+        plan: plan.steps,
+      });
+
       const votes =
         marketCode && plan.steps.length > 0
           ? insertVotes({
@@ -405,6 +493,12 @@ export function createApp(): express.Express {
          */
         rateLimited,
         rateLimit,
+        /**
+         * Set when this verdict replaced an earlier, different one from the same rater: the old row is
+         * withdrawn, its votes released or reversed, and its profile steps undone. Reported rather than done
+         * silently, because "my dislike became a like" has to be visible in the ledger's answer.
+         */
+        replaced,
         notes: marketCode ? weightNotes(marketCode) : [],
         learner: {
           minUsers: Math.max(1, config.feedback.minUsers),

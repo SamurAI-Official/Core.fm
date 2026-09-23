@@ -64,6 +64,30 @@ export function applyUserSteps(rater: string, steps: WeightStep[]): string[] {
   return applied;
 }
 
+/**
+ * Takes back the profile changes a verdict made, by applying the opposite of the steps it decided.
+ *
+ * "Roughly", for the same reason as the market's reversal: values are clamped to 0.25..3 and decay moves
+ * them as time passes, so reversing a step that was itself clamped or since decayed cannot land on the
+ * exact earlier number. What it guarantees is the direction: what the listener asked for is no longer
+ * counted in their profile.
+ */
+export function reverseUserSteps(rater: string, steps: WeightStep[]): string[] {
+  const reversed: string[] = [];
+  for (const step of steps) {
+    if (step.delta === 0) continue;
+    const current = getUserWeight(rater, step.key, 1);
+    const next = clamp(current - step.delta, MIN_WEIGHT, MAX_WEIGHT);
+    pool.query(
+      `INSERT INTO user_weights (rater, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(rater, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      [rater, step.key, round(next, 4)],
+    );
+    reversed.push(`${step.key} -> ${round(next, 3)}`);
+  }
+  return reversed;
+}
+
 export interface UserProfile {
   rater: string;
   /** How many verdicts the profile is built from - the honest measure of how much to trust it. */
