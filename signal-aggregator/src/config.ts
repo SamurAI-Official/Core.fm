@@ -124,6 +124,21 @@ export const config = {
      */
     maxVerdictsPerDay: num(process.env.FEEDBACK_MAX_VERDICTS_PER_DAY, 100),
     rateLimitWindowHours: num(process.env.FEEDBACK_RATE_LIMIT_WINDOW_HOURS, 24),
+    /**
+     * Raters whose own verdicts may move a market's weights without waiting for agreement.
+     *
+     * Empty by default, and that default is the safe one: an agent (or a panel, or a trusted reviewer)
+     * behaves exactly like any other listener - its verdicts teach its *own* profile at once and the market
+     * waits for `minUsers` distinct raters - until somebody names it here. Trust is a flag rather than a
+     * property of the name, so removing an entry returns that rater to the ordinary gate with no other
+     * change, and every vote records who cast it, so a weight can always be explained.
+     *
+     * Comma-separated, matched exactly against the rater id the caller sends (e.g. `agent:shugocore`).
+     */
+    trustedRaters: (process.env.FEEDBACK_TRUSTED_RATERS || '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0),
   },
 
   /**

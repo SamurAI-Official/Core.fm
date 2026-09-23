@@ -39,7 +39,7 @@ import {
   markWithdrawn,
   verdictRateLimit,
 } from '../loops/feedback.js';
-import { pendingPromotions, promoteFeedback, withdrawFeedback } from '../loops/promotion.js';
+import { pendingPromotions, promoteFeedback, promoteRaterVotes, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
 import { applyUserSteps, reverseUserSteps, userProfile } from '../loops/userProfile.js';
 import { currentEdition, currentOrdinal, describeEdition, getEdition, listEditions, noWinTrials, adoptEdition, createCandidate, rejectEdition } from '../loops/editions.js';
@@ -57,6 +57,59 @@ import { forecastMarket, forecastMarkets } from '../forecast/forecast.js';
 import { runScheduledPassNow, schedulerStatus } from '../schedule/scheduler.js';
 import { pipeline } from '../pipeline/client.js';
 import { dashboardHtml } from './dashboard.js';
+
+/**
+ * The endpoints an agent may use, described as data so `GET /api/agent` can hand them over.
+ *
+ * Kept beside the routes rather than inside the handler so that adding a route and forgetting to describe it
+ * is a visible omission in review. The `write` flag is the important one: exactly one entry has it, and that
+ * is the invariant worth being able to see at a glance.
+ */
+const AGENT_ENDPOINTS = [
+  {
+    method: 'POST',
+    path: '/api/feedback',
+    write: true,
+    purpose: 'record one judgement about one response, and learn from it',
+    body: {
+      rater: 'required - your rater id, e.g. agent:shugocore',
+      verdict: "required - 'like' | 'dislike' | 'none' ('none' retracts your previous verdict on that response)",
+      sourceId: 'required - the response you judged (a song id, or a run id you rendered)',
+      market:
+        'optional - the market it was designed for; without one the verdict reaches your own profile only',
+      reasons:
+        "optional - what is blamed: 'mix', 'vocals', 'lyrics', 'tempo', 'key', 'genre', 'off-prompt', 'repetition', 'language', 'not-my-kind'",
+      features: 'optional - genre, bpm, keyScale, style, agent, subject, language, themes',
+      learn: 'optional - false records the verdict without learning from it',
+      role: "optional - 'evaluation' marks a render made to compare two editions, which is excluded from training",
+      edition: 'optional - the edition that produced the response',
+      promptId: 'optional - the prompt it answered, which is how the corpus holds out whole prompts',
+      score: 'optional - 0..1, when the judgement is a grade rather than a verdict',
+    },
+    answers: {
+      recorded: 'the verdict is in the ledger',
+      replayed: 'you already gave this verdict on this response; nothing was written and nothing moved',
+      replaced: 'a different verdict of yours was withdrawn, with its votes released or reversed',
+      trusted: 'whether your verdicts may move market weights without agreement',
+      applied: 'market keys moved because enough distinct raters agree',
+      appliedByTrust: 'market keys moved because *you* are trusted (only when you are)',
+      profile: 'keys moved in your own profile, immediately',
+      pending: 'keys waiting for agreement, with how many raters are with you so far',
+      rateLimited: 'over your daily cap: recorded, but not learned from yet',
+      withdrawn: 'what a retraction released, reversed or undid',
+    },
+  },
+  { method: 'GET', path: '/api/feedback?market=&verdict=&limit=', purpose: 'the ledger: recent verdicts, the summary, and what is pending' },
+  { method: 'GET', path: '/api/users/:rater/profile', purpose: 'your own learned taste, with the verdict count behind it' },
+  { method: 'POST', path: '/api/next-take', purpose: 'what to change when a response was refused, given your reasons' },
+  { method: 'GET', path: '/api/editions/corpus', purpose: 'the training corpus and its guards, including what blocks a training run' },
+  { method: 'GET', path: '/api/editions/:id/evaluation-plan', purpose: 'the prompts to render under two editions to judge a candidate' },
+  { method: 'POST', path: '/api/editions/:id/evaluate', purpose: 'judge a candidate from listening evidence: adopt, reject, or halt' },
+  { method: 'POST', path: '/api/editions/candidates', purpose: 'register a candidate you trained' },
+  { method: 'GET', path: '/api/editions', purpose: 'the editions, which one is in force, and the stop-rule count' },
+  { method: 'GET', path: '/api/agent/state', purpose: 'one read for everything above, so one round trip is enough to orient' },
+];
+
 
 export function createApp(): express.Express {
   runMigrations();
@@ -455,6 +508,21 @@ export function createApp(): express.Express {
       const profileApplied =
         raterId && learn !== false ? applyUserSteps(raterId, plan.steps) : [];
 
+      /**
+       * A trusted rater's own votes move the market now, without waiting for `minUsers` distinct raters.
+       *
+       * Off unless the caller's rater id is named in `FEEDBACK_TRUSTED_RATERS`, which is the whole point:
+       * an agent's taste reaches the market only when somebody deliberately says so, and the same agent is
+       * an ordinary listener the moment the flag is removed. Everything else still applies - the cap has
+       * already decided whether there was a plan to vote on, `FEEDBACK_PROMOTE=false` still writes nothing,
+       * and a replay statement writes nothing at all (it returns above).
+       */
+      const trusted = Boolean(raterId && config.feedback.trustedRaters.includes(raterId as string));
+      const byTrust =
+        trusted && marketCode && votes > 0 && learn !== false
+          ? promoteRaterVotes({ market: marketCode, rater: raterId as string })
+          : [];
+
       // Only this market is reconsidered, and only after a vote exists: a promotion is a consequence of
       // what is in the ledger, never of the request alone.
       const promoted = marketCode && votes > 0 ? promoteFeedback({ market: marketCode }) : [];
@@ -482,6 +550,14 @@ export function createApp(): express.Express {
         applied: mine
           .filter((event) => event.applied)
           .map((event) => `${event.key} -> ${round(event.after ?? event.before, 3)}`),
+        /**
+         * Weight moves caused by this rater being *trusted* rather than by agreement: the keys its own
+         * votes moved without a second rater. Reported separately so "why did this market move on one
+         * verdict?" is answerable from the response as well as from the ledger.
+         */
+        appliedByTrust: byTrust.map((event) => `${event.key} -> ${round(event.after ?? event.before, 3)}`),
+        /** True when this rater is named in `FEEDBACK_TRUSTED_RATERS`. */
+        trusted,
         /** Keys still short of agreement, with how many listeners are with the caller so far. */
         pending,
         /** What moved in the *caller's own* profile, immediately, on the strength of their verdict. */
@@ -637,6 +713,119 @@ export function createApp(): express.Express {
       heldOut: corpus.heldOut.map((pair) => ({ promptKey: pair.promptKey, market: pair.market, liked: pair.liked.length, disliked: pair.disliked.length })),
       anchors: corpus.anchors.map((anchor) => ({ id: anchor.id, market: anchor.market, chartDerived: anchor.chartDerived })),
       written,
+    });
+  });
+
+  /**
+   * The agent contract: what an autonomous caller may do, and what it will get back.
+   *
+   * Written as data rather than prose so an agent can discover the surface without reading this file, and
+   * deliberately explicit about the two things that are easy to get wrong from outside:
+   *
+   *   - **there is one write path**, `POST /api/feedback`. It is the same one a listener's click uses, so an
+   *     agent's judgement and a person's cannot mean different things - or move different weights.
+   *   - **an agent is a rater, not a privileged caller.** Its verdicts teach its *own* profile at once, and
+   *     they move a market's weights only if it is named in `FEEDBACK_TRUSTED_RATERS`. This endpoint reports
+   *     which of the two applies, instead of leaving it to be discovered.
+   */
+  app.get('/api/agent', (req: Request, res: Response) => {
+    const rater = req.query.rater ? String(req.query.rater) : null;
+    const isTrusted = Boolean(rater && config.feedback.trustedRaters.includes(rater));
+    res.json({
+      contract: 'signal-aggregator/agent/v1',
+      /**
+       * What this service is, in one line, because an agent that cannot see the dashboard needs a model of
+       * what it is talking to: chart signals in, song designs out, listener judgement learned from.
+       */
+      purpose:
+        'Turns chart signals into song designs, and learns from judgements about what those designs produced.',
+      /** Trust is the only thing that differs between an agent and a person here. */
+      trust: {
+        rater,
+        trusted: isTrusted,
+        trustedRaters: config.feedback.trustedRaters,
+        effect: isTrusted
+          ? "this rater's own verdicts move the named market's weights immediately, without waiting for " +
+            'other raters to agree'
+          : "this rater's verdicts teach its own profile immediately, and are held as pending votes until " +
+            'FEEDBACK_MIN_USERS distinct raters agree',
+        /** How to change it: a flag, not an identity, so removing the name restores the ordinary gate. */
+        change: 'set FEEDBACK_TRUSTED_RATERS (comma-separated) and restart the service',
+      },
+      endpoints: AGENT_ENDPOINTS,
+      /** What an agent must not do, stated because silence here invites a guess. */
+      cannot: [
+        'adopt an edition by preference alone - a candidate is adopted only if held-out preferences plus the quality gates pass',
+        'move a market without being trusted, or with FEEDBACK_PROMOTE=false set',
+        'avoid the daily cap, which counts verdicts sent: retracting one does not buy another',
+        'train on evaluation renders: verdicts tagged role=evaluation are excluded from every corpus',
+      ],
+      config: {
+        minUsersForAgreement: Math.max(1, config.feedback.minUsers),
+        windowDays: Math.max(1, Math.round(config.feedback.windowDays)),
+        promote: config.feedback.promote,
+        maxVerdictsPerDay: config.feedback.maxVerdictsPerDay,
+        decayPerWeek: config.scoring.decayPerWeek,
+      },
+    });
+  });
+
+  /**
+   * One read that orients an agent: what is in force, what it has learned from, and what it could do next.
+   *
+   * The point is a single round trip at the start of a session, so an autonomous caller does not have to
+   * reconstruct the loop's state from six endpoints - and cannot accidentally act on a stale picture.
+   */
+  app.get('/api/agent/state', (req: Request, res: Response) => {
+    const rater = req.query.rater ? String(req.query.rater) : null;
+    const market = req.query.market ? String(req.query.market).toLowerCase() : null;
+    const corpus = buildCorpus();
+    const trials = noWinTrials();
+    const inForce = currentEdition();
+    res.json({
+      contract: 'signal-aggregator/agent/v1',
+      now: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      market,
+      edition: {
+        // The base model is a state, not an error: with nothing adopted yet, say so rather than describing a
+        // record that does not exist (describeEdition expects a row and throws on null).
+        inForce: inForce ? describeEdition(inForce) : 'the base model (no edition adopted yet)',
+        ordinal: currentOrdinal(),
+        // The stop rule, reported because it is the one state an agent cannot infer from a failure.
+        noWinTrials: trials,
+        maxNoWinTrials: config.edition.maxNoWinTrials,
+      },
+      corpus: {
+        hash: corpus.hash,
+        counts: corpus.manifest.counts,
+        blockers: corpus.manifest.blockers,
+        trainable: corpus.manifest.blockers.length === 0,
+      },
+      weights: market ? { market, notes: weightNotes(market) } : { market: null, notes: [] },
+      rater: rater
+        ? {
+            id: rater,
+            trusted: config.feedback.trustedRaters.includes(rater),
+            profile: userProfile(rater),
+            rateLimit: verdictRateLimit(rater),
+          }
+        : null,
+      /** What an agent would plausibly do next, derived from the state above rather than from a script. */
+      next: [
+        ...(corpus.manifest.blockers.length > 0
+          ? [
+              `the corpus is blocked: ${corpus.manifest.blockers.join('; ')} - judgements on new designs, ` +
+                'not code changes, are what clear this',
+            ]
+          : ['the corpus is trainable: a candidate can be trained and then judged on the held-out prompts']),
+        ...(trials >= config.edition.maxNoWinTrials
+          ? ['the tuning loop has halted after repeated failures to win: a human decides what happens next']
+          : []),
+        'record judgements with POST /api/feedback (one verdict per response; a repeat is answered, not counted twice)',
+        market
+          ? `GET /api/reports/${market} to see the evidence behind this market`
+          : 'name a market (?market=gb) to see its weights and its reports',
+      ],
     });
   });
 
