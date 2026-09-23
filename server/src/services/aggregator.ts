@@ -62,13 +62,28 @@ export interface PreferenceOutcome {
   /** Keys still short of agreement, with how many listeners are with this one so far. */
   pending: Array<{ key: string; raters: number; needed: number }>;
   /** Set when the verdict retracted an earlier one. */
-  withdrawn?: { released: number; reversed: string[] } | null;
+  withdrawn?: { released: number; reversed: string[]; profile: string[] } | null;
   /** True when the verdict was recorded but not acted on, because this listener is over their cap. */
   rateLimited: boolean;
   rateLimit?: { limit: number; used: number; windowHours: number; resetsAt: string | null } | null;
   market: string | null;
   /** The verdict recorded by the loop, when the report was accepted. */
   id?: string;
+  /**
+   * True when the loop already held this exact verdict from this rater on this response, so nothing was
+   * written and nothing moved.
+   *
+   * Without this the caller cannot tell a fresh verdict from a repeat of one: a re-run of a backfill, or a
+   * client retrying a POST, would report "recorded" for rows the ledger already had. The loop's answer has
+   * to be specific enough to be checked.
+   */
+  replayed?: boolean;
+  /** What a replacement withdrew, when this verdict replaced an earlier, different one. */
+  replaced?: { id: string; was: string; released: number; reversed: string[]; profile: string[] } | null;
+  /** The loop's own explanation of what it did, when it had something to say. */
+  note?: string;
+  /** Votes recorded toward agreement, if any. Zero on a replay, on a retraction, or without a market. */
+  votes?: number;
 }
 
 export async function reportPreference(report: PreferenceReport): Promise<PreferenceOutcome> {
@@ -97,6 +112,12 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
       withdrawn?: unknown;
       rateLimited?: unknown;
       rateLimit?: unknown;
+      replayed?: unknown;
+      replaced?: unknown;
+      note?: unknown;
+      votes?: unknown;
+      id?: unknown;
+      market?: unknown;
     };
     if (!response.ok) {
       return { ...empty, error: payload.error ?? `aggregator responded ${response.status}` };
@@ -110,8 +131,17 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
       : [];
     const withdrawn =
       payload.withdrawn && typeof payload.withdrawn === 'object'
-        ? (payload.withdrawn as { released?: unknown; reversed?: unknown })
+        ? (payload.withdrawn as { released?: unknown; reversed?: unknown; profile?: unknown })
         : null;
+    const replaced =
+      payload.replaced && typeof payload.replaced === 'object'
+        ? (payload.replaced as { id?: unknown; was?: unknown; released?: unknown; reversed?: unknown; profile?: unknown })
+        : null;
+    const undone = (entry: { released?: unknown; reversed?: unknown; profile?: unknown }) => ({
+      released: Number(entry.released ?? 0),
+      reversed: Array.isArray(entry.reversed) ? entry.reversed.map(String) : [],
+      profile: Array.isArray(entry.profile) ? entry.profile.map(String) : [],
+    });
     return {
       ok: true,
       applied: Array.isArray(payload.applied) ? payload.applied.map(String) : [],
@@ -119,13 +149,17 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
       pending,
       rateLimited: payload.rateLimited === true,
       rateLimit: (payload.rateLimit ?? null) as PreferenceOutcome['rateLimit'],
-      withdrawn: withdrawn
-        ? {
-            released: Number(withdrawn.released ?? 0),
-            reversed: Array.isArray(withdrawn.reversed) ? withdrawn.reversed.map(String) : [],
-          }
+      withdrawn: withdrawn ? undone(withdrawn) : null,
+      replayed: payload.replayed === true,
+      replaced: replaced
+        ? { id: String(replaced.id ?? ''), was: String(replaced.was ?? ''), ...undone(replaced) }
         : null,
-      market: report.market,
+      note: typeof payload.note === 'string' ? payload.note : undefined,
+      votes: typeof payload.votes === 'number' ? payload.votes : undefined,
+      id: typeof payload.id === 'string' ? payload.id : undefined,
+      // What the loop actually attributed it to: a retraction answers with the market the *row* carried,
+      // which is not always the one the request named (a market-less verdict has none).
+      market: typeof payload.market === 'string' && payload.market ? payload.market : null,
     };
   } catch (error) {
     // Offline, timing out, or not running: the verdict still stands locally.

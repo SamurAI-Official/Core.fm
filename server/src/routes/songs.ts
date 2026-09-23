@@ -11,6 +11,7 @@ import {
   rerollConceptLyrics,
 } from '../services/aggregator.js';
 import { createGenerationJob } from '../services/generation.js';
+import { forwardVerdict, parseParams } from '../services/preference.js';
 // Only for the type of the stored request a retry replays; the engine call itself is inside the service.
 import type { GenerationParams } from '../services/acestep.js';
 
@@ -451,9 +452,13 @@ router.delete('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Res
   }
 });
 
+// The verdict reporter and the params parser live in services/preference.ts, so the like route, the verdict
+// route and any backfill attribute a song identically.
+
 // Like/unlike song
 router.post('/:id/like', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   const client = await pool.connect();
+  let likedNow = false;
   try {
     await client.query('BEGIN');
 
@@ -495,15 +500,39 @@ router.post('/:id/like', authMiddleware, async (req: AuthenticatedRequest, res: 
         [req.user!.id, req.params.id]
       );
       await client.query('COMMIT');
-      res.json({ liked: true });
+      likedNow = true;
     }
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Like song error:', error);
     res.status(500).json({ error: 'Internal server error' });
+    return;
   } finally {
     client.release();
   }
+
+  /**
+   * A like given through this route has to reach the loop, not only the app's own tables.
+   *
+   * This is the older of the two routes, and until now it wrote `liked_songs` and stopped - so a like
+   * arriving here was invisible to the ledger, to the listener's profile and to the training corpus. Ten
+   * of eleven real likes on this install took exactly that path, which is why the corpus looked empty
+   * while the app looked liked. Reporting is now shared with the verdict route, so both paths teach.
+   *
+   * Unlike (the same route with the like already present) reports `none`, which retracts: taking a like
+   * back is a judgment too, and leaving it counting would be the loop disagreeing with the button.
+   */
+  const song = await pool.query('SELECT prompt_id, generation_params FROM songs WHERE id = $1', [req.params.id]);
+  const learning = await forwardVerdict({
+    songId: String(req.params.id),
+    userId: String(req.user!.id),
+    verdict: likedNow ? 'like' : 'none',
+    reasons: [],
+    params: parseParams(song.rows[0]?.generation_params),
+    promptId: song.rows[0]?.prompt_id ? String(song.rows[0].prompt_id) : null,
+  });
+
+  res.json({ liked: likedNow, learning });
 });
 
 /**
@@ -589,53 +618,15 @@ router.post('/:id/feedback', authMiddleware, async (req: AuthenticatedRequest, r
     // reported rather than raised: the verdict is already the listener's, and a local app must not
     // refuse a thumbs-down because a second service is not running. What the aggregator did (which may
     // be nothing yet - a vote is held until enough distinct listeners agree) comes back as `learning`.
-    const params = (() => {
-      const raw = song.rows[0]?.generation_params;
-      if (typeof raw !== 'string' || raw.length === 0) return {} as Record<string, unknown>;
-      try {
-        return JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        return {} as Record<string, unknown>;
-      }
-    })();
+    const params = parseParams(song.rows[0]?.generation_params);
     const market = typeof params.market === 'string' && params.market ? params.market : null;
-    const themes = Array.isArray(params.lyricThemes)
-      ? params.lyricThemes.filter((theme): theme is string => typeof theme === 'string')
-      : undefined;
-    const learning = await reportPreference({
-      market: market ?? '',
+    const learning = await forwardVerdict({
+      songId: String(req.params.id),
+      userId: String(req.user!.id),
       verdict: verdict as 'like' | 'dislike' | 'none',
-      rater: `app:${req.user!.id}`,
-      // The song id identifies the response; `prompt_id` identifies the prompt it answered. Retraction
-      // needs the response, because that is what the verdict is about.
-      sourceId: String(req.params.id),
       reasons,
-      // `learn` is left to the aggregator: a verdict always teaches the *listener's own* profile (there
-      // is nothing to wait for - it is their taste), while reaching a market's weights needs a market
-      // and agreement. A Create-tab song has no market, so its verdict simply stops at the profile.
-      //
-      // `edition` and `promptId` are the soft-tuning loop's provenance: a verdict is trainable evidence
-      // for the edition that produced the response, and a held-out set has to be split by prompt.
-      edition: typeof params.edition === 'number' || typeof params.edition === 'string' ? String(params.edition) : undefined,
-      promptId: song.rows[0]?.prompt_id ? String(song.rows[0].prompt_id) : undefined,
-      // A render made for a listening test is evidence about two editions, not material to train on: the
-      // harness tags those jobs, and the tag travels with the verdict so the corpus can exclude it.
-      role: params.renderRole === 'evaluation' ? 'evaluation' : undefined,
-      features: {
-        genre: typeof params.primaryGenre === 'string' ? params.primaryGenre : undefined,
-        bpm: typeof params.bpm === 'number' ? params.bpm : undefined,
-        keyScale: typeof params.keyScale === 'string' ? params.keyScale : undefined,
-        style: typeof params.style === 'string' ? params.style : undefined,
-        agent: typeof params.lyricAgent === 'string' ? params.lyricAgent : undefined,
-        subject: typeof params.lyricSubject === 'string' ? params.lyricSubject : undefined,
-        language:
-          typeof params.lyricLanguage === 'string'
-            ? params.lyricLanguage
-            : typeof params.vocalLanguage === 'string'
-              ? params.vocalLanguage
-              : undefined,
-        themes,
-      },
+      params,
+      promptId: song.rows[0]?.prompt_id ? String(song.rows[0].prompt_id) : null,
     });
 
     res.json({
