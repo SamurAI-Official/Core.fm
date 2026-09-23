@@ -82,6 +82,63 @@
 
 ---
 
+## 🧠 What Core.fm adds: the loop that learns
+
+ACE-Step turns a style prompt into audio. Core.fm is the layer around it that decides *what* to make, and
+learns from what you think of it. Three parts, each with its own service on your machine:
+
+| part | what it does | runs on |
+|---|---|---|
+| **Core.fm** (this repo) | interface, storage, render queue, the dislike button and "try another take" | 3000 / 3001 |
+| **The loop** (`signal-aggregator`) | reads the charts, writes briefs, designs songs, learns from every verdict | 3002 |
+| **The engine** (ACE-Step 1.5 + patches) | renders and, when asked, trains | 8001 |
+
+**What it does, end to end.** Chart signals for ten markets (`us gb fr de br jp kr cn in ng`) are collected,
+enriched and turned into a dated **brief** per market with a stated confidence. A **design** is derived from
+that brief - genre, tempo, key, production tags, a one-line premise, lyrics written by one of 21 writing
+styles in nine languages, with singability, meter, script and repetition ceilings checked before anything is
+rendered. You render it, listen, and judge it.
+
+**Your judgement is the signal.** A **like** or a **hard no**, with optional reasons (*mix*, *vocals*,
+*lyrics*, *tempo*, *language*, *not what I asked for*, …) that decide *which part* of the song is blamed. Two
+layers act on it:
+
+- **The listener's own profile** moves immediately - a hard no changes what you are offered next, with no
+  waiting, no threshold, and it never rewrites the words you typed yourself.
+- **A market's weights** move only when `FEEDBACK_MIN_USERS` **distinct** listeners agree, so one person
+  cannot reshape a whole market's taste. Untouched opinions decay back toward neutral at 2%/week, and one
+  listener can only act so many times a day.
+- **"Try another take"** turns a rejection into a different render, changing only what the machine chose.
+
+**Model editions.** The loop can tune the engine on your own verdicts, and adopt a new edition only if it
+wins on held-out prompts (a listening test, or a measured spectral comparison) *and* passes the existing
+quality gates. The training mix deliberately keeps chart-derived and curated material in it, caps how many
+rejections it learns from, and refuses to train when there is too little evidence - which is the state of
+this install today (one held-out pair short of the guard, reported rather than papered over).
+
+**Agents are first-class raters.** `GET /api/agent` describes the whole surface as data, and a rater's
+verdicts can move market weights without agreement only when it is named in the trust list
+(`POST /api/agent/trust`) - a deliberate act with a record, not a launch flag.
+
+---
+
+## 📁 Where the code lives
+
+Everything is in one repository, **[Core.fm](https://github.com/SamurAI-Official/Core.fm)**, on three branches:
+
+| branch | what it is |
+|---|---|
+| `main` | the app (this README), with the loop vendored in as a git subtree at `signal-aggregator/` |
+| `signal-aggregator` | the loop's own history - the same commits, checked out and run separately on 3002 |
+| `ace-step-1.5-patches` | the ACE-Step 1.5 engine with our patches on top of upstream |
+
+The engine patches are six small, documented commits (the reason this install must launch with
+`--use_flash_attention false` and `--quantization none`, a `lora_status` endpoint, a real unload, and so on).
+The engineering record - every measurement, every trap, and what is still open - lives in
+[`docs/INSTALL-NOTES.md`](docs/INSTALL-NOTES.md).
+
+---
+
 ## ✨ Features
 
 ### 🎵 AI Music Generation
@@ -350,6 +407,11 @@ cd ace-step-ui
 cd ace-step-ui
 start.bat
 ```
+
+This opens one window per service — the engine, the Core.fm backend (3001) and frontend (3000), plus the
+**Trends** loop on http://localhost:3002 when `signal-aggregator/` is installed alongside. The loop is the part
+that reads the charts and learns from your verdicts; the app works without it, and what it contributes lands
+in the Trends tab.
 
 ### Step 3: Create Music!
 
