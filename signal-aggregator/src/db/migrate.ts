@@ -196,6 +196,19 @@ CREATE TABLE IF NOT EXISTS user_weights (
   PRIMARY KEY (rater, key)
 );
 
+-- Who may move a market's weights without waiting for agreement.
+--
+-- The one place in this system where a single rater is exempt from the agreement gate, so it is a row
+-- rather than a configuration read: turning it on or off is a deliberate act, the source column says whether
+-- it came from the environment seed or a runtime flip, and created_at says when. Deleting the row returns
+-- that rater to the ordinary gate with nothing else changed.
+CREATE TABLE IF NOT EXISTS trusted_raters (
+  rater TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'api',
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Model editions: the soft-tuning loop's spine.
 --
 -- An edition is a LoRA tuned from the previous one (consecutive, never from scratch) on a *corpus*
