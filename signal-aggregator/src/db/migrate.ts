@@ -196,6 +196,35 @@ CREATE TABLE IF NOT EXISTS user_weights (
   PRIMARY KEY (rater, key)
 );
 
+-- Model editions: the soft-tuning loop's spine.
+--
+-- An edition is a LoRA tuned from the previous one (consecutive, never from scratch) on a *corpus*
+-- drawn from the preference ledger plus anchors that must stay in the mix. The row records exactly what
+-- it was trained on (dataset_hash, dataset_manifest) and what it was judged by (evaluation), so "which
+-- model made this song, trained on what, and why was it adopted" is answerable months later.
+--
+-- The ordinal is what a song records as its provenance (0 = the base model, 1.. = tuned). Exactly one
+-- edition may be adopted at a time - enforced by the partial unique index below rather than by
+-- convention, because two adopted editions would make "the incumbent" ambiguous and an ambiguous
+-- incumbent is how an uncontrolled loop makes its decisions.
+CREATE TABLE IF NOT EXISTS editions (
+  id TEXT PRIMARY KEY,
+  ordinal INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  base_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  adopted_at TEXT,
+  retired_at TEXT,
+  dataset_hash TEXT,
+  dataset_manifest TEXT,
+  dataset_path TEXT,
+  hyperparameters TEXT,
+  adapter_path TEXT,
+  feedback_window TEXT,
+  evaluation TEXT,
+  notes TEXT
+);
+
 -- Adaptive per-market weights updated after every scored cycle
 -- (things that scored well get sampled more often next cycle).
 CREATE TABLE IF NOT EXISTS market_weights (
@@ -273,8 +302,15 @@ ensureColumn('feedback', 'withdrawn', 'INTEGER NOT NULL DEFAULT 0');
 // readable fact rather than being rewritten by every decay pass.
 ensureColumn('market_weights', 'decayed_at', 'TEXT');
 ensureColumn('user_weights', 'decayed_at', 'TEXT');
+// Which model edition produced the response being judged, and which prompt it answered. The edition is
+// what makes feedback on edition N the training signal for N+1; the prompt is what lets the corpus hold
+// out whole prompts rather than single responses.
+ensureColumn('feedback', 'edition', 'TEXT');
+ensureColumn('feedback', 'prompt_id', 'TEXT');
   backfillTrackKeys();
   exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_editions_one_adopted ON editions (status) WHERE status = 'adopted';
+    CREATE INDEX IF NOT EXISTS idx_editions_ordinal ON editions (ordinal);
     CREATE INDEX IF NOT EXISTS idx_signals_track_series ON signals (market, track_key, captured_at);
     CREATE INDEX IF NOT EXISTS idx_signals_market_time ON signals (market, captured_at);
     CREATE INDEX IF NOT EXISTS idx_feedback_votes_pending

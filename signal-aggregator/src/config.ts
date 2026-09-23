@@ -126,6 +126,33 @@ export const config = {
     rateLimitWindowHours: num(process.env.FEEDBACK_RATE_LIMIT_WINDOW_HOURS, 24),
   },
 
+  /**
+   * The soft-tuning loop (Layer 2): how a candidate edition is built and whether it is adopted.
+   *
+   * Every number here is a guard against a specific way this loop goes wrong, which is why they are
+   * named rather than buried: a mix with too few anchors collapses onto its own output, a mix with too
+   * many negatives learns to avoid everything, too few held-out pairs cannot tell two editions apart,
+   * and a loop with no stop rule will tune for ever.
+   */
+  edition: {
+    /** Share of *prompts* held out. Split by prompt, so a held-out pair is an unseen prompt. */
+    heldOutShare: num(process.env.EDITION_HELD_OUT_SHARE, 0.3),
+    /** Negatives per positive in the mix: stops dislikes teaching it to avoid everything. */
+    maxNegativesPerPositive: num(process.env.EDITION_MAX_NEGATIVES_PER_POSITIVE, 2),
+    /** Designs with no verdict that must stay in the mix: the chart material and the curated baseline. */
+    minAnchors: num(process.env.EDITION_MIN_ANCHORS, 8),
+    /** Below this the corpus is too thin to train on, and says so instead of training anyway. */
+    minTrainSamples: num(process.env.EDITION_MIN_TRAIN_SAMPLES, 8),
+    /** Held-out pairs needed before a candidate may be judged at all. */
+    minHeldOutPairs: num(process.env.EDITION_MIN_HELD_OUT_PAIRS, 5),
+    /** Preference accuracy a candidate must reach on held-out pairs. */
+    minWinRate: num(process.env.EDITION_MIN_WIN_RATE, 0.6),
+    /** Consecutive candidates that fail to win before the loop stops and waits for a human. */
+    maxNoWinTrials: num(process.env.EDITION_MAX_NO_WIN_TRIALS, 3),
+    /** Where corpora and adapter references are written (beside the database by default). */
+    corpusDir: process.env.EDITION_CORPUS_DIR || '',
+  },
+
   keys: {
     spotifyClientId: process.env.SPOTIFY_CLIENT_ID || '',
     spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET || '',
