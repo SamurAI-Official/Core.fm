@@ -683,8 +683,18 @@ person's cannot mean different things, and cannot move different weights. What d
 
 `FEEDBACK_TRUSTED_RATERS` is empty by default, which is the safe default: an agent's taste reaches a
 market only when somebody deliberately names it, and the same agent is an ordinary listener the moment the
-entry is removed. Trust is a *flag*, not a property of the name, so the change is one environment variable
-and a restart - and because every vote records its rater, a market's weights can always be explained by the
+entry is removed. It is the **seed**, not the switch:
+
+| | |
+|---|---|
+| the seed | `FEEDBACK_TRUSTED_RATERS` (comma-separated) is written into the `trusted_raters` table at startup, additively - a name already recorded keeps its original source and timestamp |
+| the switch | `POST /api/agent/trust { rater, enabled, note? }` - idempotent in both directions, so a caller can set the state it wants without reading first (`changed: false` is not an error) |
+| the record | `GET /api/agent/trust` lists who is trusted, and each entry says whether it came from `env` or `api` and when |
+
+A table rather than a launch argument, because of what the flag does: "the agent could move a market only
+while the service happened to be started with the right variable" is not a property anyone can reason about.
+Trust is a *flag*, not an identity, so removing an entry returns that rater to the ordinary gate with nothing
+else changed - and because every vote records its rater, a market's weights can always be explained by the
 raters behind them.
 
 **What a trusted rater still cannot do.** It is an exemption from the agreement gate and nothing else:
@@ -846,6 +856,11 @@ held-out half holds out whole designs rather than single renders of them.
 A held-out pair needs a **liked reference**, not a dislike: the judge renders the prompt under both editions
 and asks which is closer to what the listener liked there. Requiring both sides was a leftover, and it made
 a real batch unusable - eleven likes across eleven prompts produced zero pairs.
+
+`GET /api/editions/corpus` is also the **handoff to the executor**: each sample carries `audio` and `origin`
+(so a dataset can be built from it without re-deriving where the audio is), `promptKey`, and the `features`
+it was made with. Without those the executor would keep its own idea of what the corpus is, and the two
+would drift.
 
 ### The gate
 
@@ -1068,7 +1083,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `FEEDBACK_WINDOW_DAYS` | `30` | How long a vote counts toward a promotion |
 | `FEEDBACK_PROMOTE` | `true` | `false` = record and report votes, never move a weight (shadow mode) |
 | `FEEDBACK_MAX_VERDICTS_PER_DAY` | `100` | Verdicts one listener may *act* with per window; `0` = unlimited. The rest are recorded, not acted on |
-| `FEEDBACK_TRUSTED_RATERS` | *(empty)* | Comma-separated rater ids whose own verdicts move market weights without waiting for agreement. Empty trusts nobody; an agent acts on its own profile only |
+| `FEEDBACK_TRUSTED_RATERS` | *(empty)* | Comma-separated rater ids whose own verdicts move market weights without waiting for agreement. A **seed** for the `trusted_raters` table; the switch is `POST /api/agent/trust`. Empty trusts nobody |
 | `FEEDBACK_RATE_LIMIT_WINDOW_HOURS` | `24` | The window that cap is measured over |
 | `EDITION_HELD_OUT_SHARE` | `0.3` | Share of *prompts* held out to judge a candidate edition |
 | `EDITION_MAX_NEGATIVES_PER_POSITIVE` | `2` | Negatives allowed per positive in the training mix |
@@ -1100,6 +1115,7 @@ Key `.env` values (`src/config.ts` holds the full list with defaults):
 | `POST /api/next-take` | `{ rater, reasons, previous, excludeSeeds, attempt? }` → what to change for another take of the same prompt, with a note explaining each change |
 | `POST /api/decay` · `GET /api/decay` | Run a decay pass (or `{ "dryRun": true }` to be told what it would do); get the rule in force and when it last ran |
 | `GET /api/agent` · `GET /api/agent/state` | The agent contract as data (one write path, what each reply field means, what an agent cannot do, config in force), and one read that orients an autonomous caller: edition, stop rule, corpus blockers, weight notes, its own profile and cap, and what comes next |
+| `GET /api/agent/trust` · `POST /api/agent/trust` | Who may move market weights without agreement, where each entry came from, and the flag itself: `{ rater, enabled, note? }`, idempotent in both directions |
 
 
 ## Files

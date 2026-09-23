@@ -42,6 +42,7 @@ import {
 import { pendingPromotions, promoteFeedback, promoteRaterVotes, withdrawFeedback } from '../loops/promotion.js';
 import { decayStatus, decayWeights, describeDecay } from '../loops/decay.js';
 import { applyUserSteps, reverseUserSteps, userProfile } from '../loops/userProfile.js';
+import { isTrustedRater, listTrustedRaters, seedTrustedRaters, setTrustedRater } from '../loops/trust.js';
 import { currentEdition, currentOrdinal, describeEdition, getEdition, listEditions, noWinTrials, adoptEdition, createCandidate, rejectEdition } from '../loops/editions.js';
 import { decisionRecord, describeDecision, judgeCandidate } from '../loops/editionGate.js';
 import { describeEvidence, evaluationEvidence, evaluationPlan, listenerScorer, BASE_EDITION_ID } from '../loops/editionEvaluation.js';
@@ -62,14 +63,17 @@ import { dashboardHtml } from './dashboard.js';
  * The endpoints an agent may use, described as data so `GET /api/agent` can hand them over.
  *
  * Kept beside the routes rather than inside the handler so that adding a route and forgetting to describe it
- * is a visible omission in review. The `write` flag is the important one: exactly one entry has it, and that
- * is the invariant worth being able to see at a glance.
+ * is a visible omission in review. The `write` flag marks the two that change something beyond their own
+ * record, and `writes` says *what kind*: exactly one writes a **judgement** (the invariant worth being able
+ * to see at a glance - one meaning for "this response is wrong"), and one writes **authority** (the trust
+ * flag, which is how a rater is exempted from the agreement gate).
  */
 const AGENT_ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/feedback',
     write: true,
+    writes: 'judgement',
     purpose: 'record one judgement about one response, and learn from it',
     body: {
       rater: 'required - your rater id, e.g. agent:shugocore',
@@ -108,6 +112,8 @@ const AGENT_ENDPOINTS = [
   { method: 'POST', path: '/api/editions/candidates', purpose: 'register a candidate you trained' },
   { method: 'GET', path: '/api/editions', purpose: 'the editions, which one is in force, and the stop-rule count' },
   { method: 'GET', path: '/api/agent/state', purpose: 'one read for everything above, so one round trip is enough to orient' },
+  { method: 'GET', path: '/api/agent/trust', purpose: 'who may move market weights without agreement, and where each entry came from' },
+  { method: 'POST', path: '/api/agent/trust', purpose: "{ rater, enabled } - the flag: exempt one rater from the agreement gate, or put it back on it (idempotent)", write: true, writes: 'authority' },
 ];
 
 
@@ -120,6 +126,14 @@ export function createApp(): express.Express {
   const startupDecay = decayWeights();
   if (startupDecay.scopes.some((scope) => scope.moved > 0)) {
     for (const line of describeDecay(startupDecay)) console.log(`[decay] ${line}`);
+  }
+
+  // Trust is seeded from the environment into `trusted_raters` rather than read from it on every request, so
+  // that flipping it (including by API) is what decides - and so a restart cannot quietly change who is
+  // trusted. Additive: a name already recorded keeps its original source and timestamp.
+  const seededTrust = seedTrustedRaters();
+  if (seededTrust.added.length > 0) {
+    console.log(`[trust] seeded from FEEDBACK_TRUSTED_RATERS: ${seededTrust.added.join(', ')}`);
   }
 
   const app = express();
@@ -517,7 +531,7 @@ export function createApp(): express.Express {
        * already decided whether there was a plan to vote on, `FEEDBACK_PROMOTE=false` still writes nothing,
        * and a replay statement writes nothing at all (it returns above).
        */
-      const trusted = Boolean(raterId && config.feedback.trustedRaters.includes(raterId as string));
+      const trusted = isTrustedRater(raterId);
       const byTrust =
         trusted && marketCode && votes > 0 && learn !== false
           ? promoteRaterVotes({ market: marketCode, rater: raterId as string })
@@ -702,15 +716,44 @@ export function createApp(): express.Express {
   });
 
   /** What the next edition would train on, and whether it is allowed to. */
+  /**
+   * What the next edition would train on, and whether it is allowed to.
+   *
+   * This is also the *handoff* to the executor, so the samples carry everything it needs to build a dataset
+   * and to render the evaluation: where each response's audio is (`audio`, and `origin` to say which side of
+   * the system produced it), which prompt it answered, and the features it was made with. Without those the
+   * executor would have to re-derive them from its own database - and would be building a second, quietly
+   * different idea of what the corpus is.
+   */
   app.get('/api/editions/corpus', (req: Request, res: Response) => {
     const dryRunOnly = req.query.write !== 'true';
     const corpus = buildCorpus();
     const written = dryRunOnly ? null : writeCorpus(corpus);
+    const sampleView = (sample: (typeof corpus.train)[number]) => ({
+      id: sample.id,
+      origin: sample.origin,
+      audio: sample.audio,
+      promptKey: sample.promptKey,
+      market: sample.market,
+      verdict: sample.verdict,
+      reasons: sample.reasons,
+      edition: sample.edition,
+      features: sample.features,
+    });
     res.json({
+      hash: corpus.hash,
       manifest: corpus.manifest,
       notes: describeCorpus(corpus),
-      train: corpus.train.map((sample) => ({ id: sample.id, verdict: sample.verdict, reasons: sample.reasons, edition: sample.edition })),
-      heldOut: corpus.heldOut.map((pair) => ({ promptKey: pair.promptKey, market: pair.market, liked: pair.liked.length, disliked: pair.disliked.length })),
+      train: corpus.train.map(sampleView),
+      heldOut: corpus.heldOut.map((pair) => ({
+        promptKey: pair.promptKey,
+        market: pair.market,
+        /** The liked reference: what a judge compares two renders against, and what a harness renders first. */
+        liked: pair.liked.map(sampleView),
+        disliked: pair.disliked.map(sampleView),
+        likedCount: pair.liked.length,
+        dislikedCount: pair.disliked.length,
+      })),
       anchors: corpus.anchors.map((anchor) => ({ id: anchor.id, market: anchor.market, chartDerived: anchor.chartDerived })),
       written,
     });
@@ -730,7 +773,8 @@ export function createApp(): express.Express {
    */
   app.get('/api/agent', (req: Request, res: Response) => {
     const rater = req.query.rater ? String(req.query.rater) : null;
-    const isTrusted = Boolean(rater && config.feedback.trustedRaters.includes(rater));
+    const isTrusted = isTrustedRater(rater);
+    const trusted = listTrustedRaters();
     res.json({
       contract: 'signal-aggregator/agent/v1',
       /**
@@ -743,14 +787,15 @@ export function createApp(): express.Express {
       trust: {
         rater,
         trusted: isTrusted,
-        trustedRaters: config.feedback.trustedRaters,
+        trustedRaters: trusted.map((entry) => entry.rater),
+        entries: trusted,
         effect: isTrusted
           ? "this rater's own verdicts move the named market's weights immediately, without waiting for " +
             'other raters to agree'
           : "this rater's verdicts teach its own profile immediately, and are held as pending votes until " +
             'FEEDBACK_MIN_USERS distinct raters agree',
-        /** How to change it: a flag, not an identity, so removing the name restores the ordinary gate. */
-        change: 'set FEEDBACK_TRUSTED_RATERS (comma-separated) and restart the service',
+        /** Flipping it is a request, not a redeploy: see POST /api/agent/trust. */
+        change: 'POST /api/agent/trust with { rater, enabled } (or seed FEEDBACK_TRUSTED_RATERS and restart)',
       },
       endpoints: AGENT_ENDPOINTS,
       /** What an agent must not do, stated because silence here invites a guess. */
@@ -805,7 +850,7 @@ export function createApp(): express.Express {
       rater: rater
         ? {
             id: rater,
-            trusted: config.feedback.trustedRaters.includes(rater),
+            trusted: isTrustedRater(rater),
             profile: userProfile(rater),
             rateLimit: verdictRateLimit(rater),
           }
@@ -826,6 +871,57 @@ export function createApp(): express.Express {
           ? `GET /api/reports/${market} to see the evidence behind this market`
           : 'name a market (?market=gb) to see its weights and its reports',
       ],
+    });
+  });
+
+  /**
+   * The flag itself: turn trust on or off for a rater, without a redeploy.
+   *
+   * This is the one place an agent's influence over a *market* is decided, so the response says what the
+   * effective list now is and what that means, and the ledger records when and from where the entry came.
+   * Idempotent: asking for the state it already has is answered as `changed: false` rather than as an error,
+   * so a caller can set the state it wants without first reading it.
+   */
+  app.post('/api/agent/trust', (req: Request, res: Response) => {
+    try {
+      const { rater, enabled, note } = (req.body ?? {}) as { rater?: unknown; enabled?: unknown; note?: unknown };
+      if (typeof rater !== 'string' || !rater.trim()) {
+        res.status(400).json({ error: 'rater is required' });
+        return;
+      }
+      if (typeof enabled !== 'boolean') {
+        res.status(400).json({ error: 'enabled must be true or false' });
+        return;
+      }
+      const result = setTrustedRater({
+        rater: rater.trim(),
+        enabled,
+        note: typeof note === 'string' && note ? note : undefined,
+      });
+      const trusted = listTrustedRaters();
+      res.json({
+        ...result,
+        trustedRaters: trusted.map((entry) => entry.rater),
+        entries: trusted,
+        effect: result.enabled
+          ? `${result.rater}: its own verdicts now move market weights without waiting for agreement ` +
+            `(minUsers ${Math.max(1, config.feedback.minUsers)} still applies to everyone else)`
+          : `${result.rater}: back on the ordinary gate - its verdicts teach its own profile at once and are ` +
+            'held as pending votes until enough distinct raters agree',
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  /** Who is trusted right now, and where each entry came from. */
+  app.get('/api/agent/trust', (_req: Request, res: Response) => {
+    const trusted = listTrustedRaters();
+    res.json({
+      trustedRaters: trusted.map((entry) => entry.rater),
+      entries: trusted,
+      seededFromEnv: config.feedback.trustedRaters,
+      minUsersForEveryoneElse: Math.max(1, config.feedback.minUsers),
     });
   });
 
