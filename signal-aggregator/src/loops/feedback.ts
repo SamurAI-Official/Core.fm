@@ -45,11 +45,18 @@ export function insertFeedback(input: {
   edition?: string;
   /** The prompt it answered, so a corpus can hold out whole prompts rather than single responses. */
   promptId?: string;
+  /**
+   * Whether this verdict may be *learned* from ('training', the default) or only *judged* with
+   * ('evaluation'). Evaluation renders come from listening to the held-out prompts, and training on them
+   * would make the next gate measure memorisation of its own test set.
+   */
+  role?: 'training' | 'evaluation';
 }): string {
   const id = uuid();
   pool.query(
-    `INSERT INTO feedback (id, market, verdict, score, reasons, features, source, rater, source_id, edition, prompt_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO feedback
+       (id, market, verdict, score, reasons, features, source, rater, source_id, edition, prompt_id, role)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.market ?? null,
@@ -62,6 +69,7 @@ export function insertFeedback(input: {
       input.sourceId ?? null,
       input.edition ?? null,
       input.promptId ?? null,
+      input.role ?? 'training',
     ],
   );
   return id;

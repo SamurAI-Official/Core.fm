@@ -89,12 +89,22 @@ export function currentOrdinal(): number {
   return currentEdition()?.ordinal ?? 0;
 }
 
-/** Enough to tune from: the incumbent's adapter, and the ordinal the candidate will take. */
+/**
+ * Enough to tune from: the incumbent's adapter, and the ordinal the candidate will take.
+ *
+ * The ordinal comes from the *registry* (`MAX(ordinal) + 1`), not from the incumbent's ordinal plus one.
+ * Basing it on the incumbent made a rejected candidate collide with the next one - two editions sharing an
+ * ordinal - and since a song records the ordinal as its provenance, a collision makes that provenance
+ * ambiguous: ordinal 2 could mean the edition that was thrown away or the one that is in force. The
+ * ordinals are a saga counter; the base is only who the weights are resumed from.
+ */
 export function tuningBase(): { base: Edition | null; ordinal: number; resumeCheckpoint: string | null } {
   const base = currentEdition();
+  const { rows } = pool.query<Record<string, unknown>>('SELECT MAX(ordinal) AS max_ordinal FROM editions');
+  const highest = Number(rows[0]?.max_ordinal ?? 0);
   return {
     base,
-    ordinal: (base?.ordinal ?? 0) + 1,
+    ordinal: (Number.isFinite(highest) ? highest : 0) + 1,
     resumeCheckpoint: base?.adapterPath ?? null,
   };
 }
