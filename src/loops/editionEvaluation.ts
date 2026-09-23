@@ -38,6 +38,14 @@ export interface EvaluationEvidence {
   ambiguous: number;
   /** Prompts already rendered under both editions and waiting for a second judgement. */
   pending: number;
+  /**
+   * Who or what produced each verdict, by source.
+   *
+   * A decision has to say how it was reached. Adoption on a person's ear and adoption on a spectral
+   * distance are different claims about the world, and a reader who cannot tell them apart cannot judge
+   * whether the adoption was justified - which is the whole purpose of recording the evaluation.
+   */
+  sources: Record<string, number>;
 }
 
 /**
@@ -63,7 +71,7 @@ export function editionIdForOrdinal(ordinal: string): string {
 /** Verdicts given on evaluation renders: evidence about two editions, never training material. */
 export function evaluationEvidence(): EvaluationEvidence {
   const { rows } = pool.query<Record<string, unknown>>(
-    `SELECT verdict, source_id, prompt_id, edition
+    `SELECT verdict, source_id, prompt_id, edition, source
      FROM feedback
      WHERE role = 'evaluation' AND source_id IS NOT NULL AND withdrawn = 0
      ORDER BY created_at ASC`,
@@ -71,10 +79,13 @@ export function evaluationEvidence(): EvaluationEvidence {
 
   const byPrompt = new Map<string, Array<{ verdict: string; id: string; edition: string | null }>>();
   const editions: Record<string, string> = {};
+  const sources: Record<string, number> = {};
   const resolved = new Map<string, string>();
   for (const row of rows) {
     const id = String(row.source_id);
     const raw = row.edition ? String(row.edition) : null;
+    const source = row.source ? String(row.source) : 'unknown';
+    sources[source] = (sources[source] ?? 0) + 1;
     // Resolve the ordinal a song recorded into the registry id the gate compares, once per ordinal.
     let edition: string | null = null;
     if (raw !== null) {
@@ -121,15 +132,16 @@ export function evaluationEvidence(): EvaluationEvidence {
     });
   }
 
-  return { pairs, editions, ambiguous, pending };
+  return { pairs, editions, ambiguous, pending, sources };
 }
 
 /**
  * The scorer a listening test implies: an edition scores 1 on the response it produced and 0 on any other.
  *
  * Written out rather than inlined so the reasoning is in one place - the gate asks "does the candidate
- * rank the liked response above the disliked one", and for a listening test that is exactly "did the
- * listener prefer the candidate's render", which this reduces to.
+ * rank the liked response above the disliked one", and for an A/B judgement that is exactly "was the
+ * candidate's render preferred", which this reduces to. It holds whether the preference came from a
+ * person's ear or from a spectral distance: both arrive as a verdict on each render.
  */
 export function listenerScorer(editions: Record<string, string>): EditionScorer {
   return (editionId: string, sampleId: string): number => (editions[sampleId] === editionId ? 1 : 0);
@@ -142,6 +154,10 @@ export function describeEvidence(evidence: EvaluationEvidence): string[] {
     `${evidence.pairs.length} decided pair(s) from listening; ${evidence.ambiguous} prompt(s) judged on one ` +
       `edition only, ${evidence.pending} still waiting for a second judgement`,
   );
+  const sources = Object.entries(evidence.sources)
+    .map(([source, count]) => `${source}: ${count}`)
+    .join(', ');
+  if (sources) lines.push(`  judged by: ${sources}`);
   for (const pair of evidence.pairs) {
     lines.push(
       `  ${pair.promptKey.slice(0, 8)}: liked ${pair.likedEdition?.slice(0, 8) ?? '?'} over ` +
