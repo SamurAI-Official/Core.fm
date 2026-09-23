@@ -849,13 +849,54 @@ Two rules keep the test honest, and both exist because their absence produced a 
 | `npm run edition-evidence` | what the listening test has decided, and what it still needs |
 
 
-### What is deliberately not built yet
+### The judge: a person, or a measurement that says which is closer
 
-**The executor**: preprocess, train, export and score. The app already has every mechanical piece
-(`POST /api/training/preprocess` → `/start` → `/export`, with `resumeCheckpoint` taken from the incumbent),
-so the next slice is the glue plus a real `EditionScorer`, not new machinery. What exists now is the part
-that decides - and it decides in a way that can be tested without a GPU, which is the whole reason it was
-built first.
+The evaluation is an A/B judgement on two renders of one held-out prompt. What *performs* that judgement can
+be a person - the listening test above - or a measurement. Everything downstream is identical either way,
+because both arrive as a verdict on each render: the evidence, the pairs, the gate, the corpus-exclusion
+guard. That was deliberate, so a person can override any single judgement by hand and nothing else has to
+know, and so a decision can always say how it was reached (`source`: `edition-proxy` or the app's own).
+
+**Why not the engine's own training loss.** Comparing step/loss signals between an incumbent and a candidate
+on the same corpus is structurally biased: the candidate was trained on the very material it is being
+measured against, so the newest edition almost always "wins" - and a gate that always says yes is not a gate.
+Worse, lower loss is *precisely* the objective of the collapse failure mode named above: it rewards fitting
+your own liked output more closely. Loss measures fit; adoption is a question about preference.
+
+**What the measurement is.** Each render is reduced to a compact spectral description - band energies from a
+Goertzel filter bank, each frame normalised to a *distribution over bands* so the level cannot leak in, the
+frame's tilt removed so what remains is where the peaks and valleys sit relative to it, plus brightness and a
+zero-crossing rate, summarised as mean and spread over the track - and two renders are compared by cosine
+similarity to the average of the material the listener liked on that prompt.
+
+**Its measured resolution, stated rather than implied.** On real renders from this machine: the same audio
+against itself scores **1.0000**, and four different songs score **0.9585, 0.9896, 0.9797, 0.9737** - so the
+worst-case gap between "this is the same material" and "this is a different song" is **0.0104**. The tie
+margin is 0.005, half of that, and it is a *policy* rather than a noise floor: the measurement is
+deterministic (the same material at a quarter of the volume scores exactly 1.0000), so a smaller margin would
+decide more pairs on finer differences. It is configurable per call.
+
+**What it cannot do.** It cannot judge whether a render is *good*, only which of two is nearer to what was
+liked - and blandness sits near the middle of any such space, so a candidate could in principle be preferred
+by being average. Three things hold that in check: it only ever compares two renders of the *same* prompt; the
+gate still requires a win rate *and* the quality gates; and the provenance is recorded, so an adoption that
+rested on a measurement is visible as one. It is a hypothesis to be validated - run the listening test and the
+proxy on the same prompts and compare their agreements - not a replacement for listening.
+
+| Endpoint / command | Purpose |
+|---|---|
+| `POST /api/editions/judge` (app) | compare rendered pairs and report the verdicts; returns the similarities behind each one |
+| `GET /api/editions` (app) | the aggregator's registry, so a UI need not know its URL |
+| `npm run edition-evidence` (aggregator) | what the listening test or judge has decided, and by what source |
+
+
+**The training run**: preprocess, train, export. The app already has every mechanical piece
+(`POST /api/training/preprocess` → `/start` → `/export`, with `resumeCheckpoint` taken from the incumbent's
+adapter), and the judging half now exists in both forms - a person listening, or the measured comparison -
+so what remains is the glue that turns a corpus into a dataset, a dataset into a LoRA, and a plan into
+renders. That is the first step that needs the GPU, and it needs at least `EDITION_MIN_ANCHORS` unjudged
+designs, `EDITION_MIN_TRAIN_SAMPLES` training samples and `EDITION_MIN_HELD_OUT_PAIRS` judged held-out pairs
+before it will do anything at all.
 
 ## Honest limitations
 
@@ -924,6 +965,11 @@ built first.
   it is not free: a render per held-out prompt per edition, and someone to listen. That is a deliberate
   cost - the alternative is a metric the loop can optimise against itself, which this system has refused
   everywhere else.
+- **The measured judge is coarse, and its resolution is known.** Identical material scores 1.0000 against
+  itself and different songs score 0.96-0.99, so the signal it can act on is about 0.01 wide. It can tell
+  "this render" from "another song"; it cannot tell a good take from a mediocre one of the same prompt. Use
+  it for the coarse comparison, keep the listening test for anything close, and validate the one against the
+  other on the same prompts before letting it adopt anything.
 - **Edition ordinals are a saga counter, not a sequence of survivors.** A rejected candidate keeps its
   ordinal, so the numbers a song records may skip; `editions` is the only place that says what each ordinal
   meant. That is why the ordinal is taken from the registry (`MAX(ordinal) + 1`) rather than from the
