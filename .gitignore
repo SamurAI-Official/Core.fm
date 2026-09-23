@@ -243,3 +243,12 @@ gradio_outputs/
 acestep/third_parts/vllm/
 test_lora_scale_fix.py
 lokr_output/
+
+# --- Core.fm local -----------------------------------------------------------
+# Adapter weights that live on this machine only: downloads pulled for testing, and the
+# exported editions this install produces. Large, machine-specific, and reproducible from
+# their sources - the LoRA panel can re-download a published adapter, and an edition is
+# rebuilt from the corpus hash recorded with it. Without this the branch that carries the
+# Core.fm patches would also carry gigabytes of weights nobody asked for.
+loras/
+lora_output/
