@@ -32,6 +32,11 @@ export interface PreferenceReport {
   };
   /** `false` records the verdict without letting it move anything. */
   learn?: boolean;
+  /**
+   * What produced the verdict, recorded with it: `app` for a listener's own click, `edition-proxy` when an
+   * automated judge compared two renders. A decision that rests on a measurement has to say so.
+   */
+  source?: string;
   /** The model edition that produced the response (0/absent = the base model). */
   edition?: string;
   /** The prompt the response answered, so the corpus can hold out whole prompts. */
@@ -62,6 +67,8 @@ export interface PreferenceOutcome {
   rateLimited: boolean;
   rateLimit?: { limit: number; used: number; windowHours: number; resetsAt: string | null } | null;
   market: string | null;
+  /** The verdict recorded by the loop, when the report was accepted. */
+  id?: string;
 }
 
 export async function reportPreference(report: PreferenceReport): Promise<PreferenceOutcome> {
@@ -79,7 +86,7 @@ export async function reportPreference(report: PreferenceReport): Promise<Prefer
     const response = await fetch(`${config.aggregator.url}/api/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...report, source: 'app' }),
+      body: JSON.stringify({ ...report, source: report.source ?? 'app' }),
       signal: controller.signal,
     });
     const payload = (await response.json()) as {
